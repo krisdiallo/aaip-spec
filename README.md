@@ -35,7 +35,7 @@ agent = your_existing_agent  # Any framework, any identity system
 # User grants specific authorization via AAIP
 delegation = create_aaip_delegation(
     agent_identity=agent.identity,  # Works with any identity format
-    scope=["airline.book_flights", "hotel.make_reservations"],
+    scope=["airline:book_flights", "hotel:make_reservations"],
     constraints={"max_spend": "$2000", "trip_dates": "2025-03-15:2025-03-17"},
     expires_in="24_hours"
 )
@@ -73,7 +73,7 @@ authorized_agent = add_authorization_layer(agent)
 # User grants permissions
 delegation = user.grant_permissions(
     agent_id=agent.identity,
-    scope=["payments.authorize", "calendar.read"],
+    scope=["payments:authorize", "calendar:read"],
     constraints={"max_amount": "$500"}
 )
 
@@ -118,7 +118,7 @@ authorized_agent = AuthorizedAgent(MyAgent(), identity_adapter)
 # Now supports delegations with any identity format
 delegation = create_delegation(
     identity=authorized_agent.identity,
-    scope=["api.call", "data.read"],
+    scope=["api:call", "data:read"],
     constraints={"rate_limit": "100/hour"}
 )
 ```
@@ -218,7 +218,7 @@ authorized_agent = add_aaip_authorization(agntcy_agent, adapter)
 # Now supports user delegations while keeping Agntcy identity
 delegation = create_delegation(
     identity=agntcy_agent.identity,
-    scope=["payments.authorize"],
+    scope=["payments:authorize"],
     constraints={"max_amount": "$500"}
 )
 ```
@@ -237,7 +237,7 @@ authorized_agent = add_aaip_authorization(did_agent, adapter)
 # Create delegations using DID identity
 delegation = create_delegation(
     identity=did_agent.did,
-    scope=["calendar.write", "email.send"]
+    scope=["calendar:write", "email:send"]
 )
 ```
 
@@ -303,7 +303,7 @@ authorized_agent = add_authorization_layer(your_agent, adapter)
 ```python
 delegation = create_delegation(
     identity=authorized_agent.identity,
-    scope=["specific.permissions"],
+    scope=["specific:permissions"],
     constraints={"your": "limits"},
     expires_in="1_hour"
 )

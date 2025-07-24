@@ -73,7 +73,7 @@ AAIP provides a universal authorization layer that:
 A cryptographically signed authorization token that grants specific permissions to an agent for a limited time with explicit constraints.
 
 #### 2.2.2 Scope
-Hierarchical permission identifiers (e.g., `payments.authorize`, `calendar.read`) that define what actions an agent can perform.
+Hierarchical permission identifiers (e.g., `payments:authorize`, `calendar:read`) that define what actions an agent can perform.
 
 #### 2.2.3 Constraints
 Additional limitations on delegations (e.g., spending limits, time windows, data filters) that services must enforce.
@@ -100,8 +100,8 @@ Immutable record of delegation creation, usage, and revocation for accountabilit
       "identity_system": "agntcy|did|oauth|custom"
     },
     "scope": [
-      "payments.authorize",
-      "calendar.read"
+      "payments:authorize",
+      "calendar:read"
     ],
     "constraints": {
       "max_amount": {"value": 500, "currency": "USD"},
@@ -153,7 +153,7 @@ For signature verification, delegations MUST be serialized using deterministic J
 
 Example canonical form:
 ```json
-{"aaip_version":"1.0","delegation":{"constraints":{"max_amount":{"currency":"USD","value":500}},"expires_at":"2025-07-24T10:00:00Z","id":"del_01H8QK9J2M3N4P5Q6R7S8T9V0W","issued_at":"2025-07-23T10:00:00Z","issuer":{"identity":"user123","identity_system":"custom","public_key":"abc123"},"not_before":"2025-07-23T10:00:00Z","scope":["payments.authorize"],"subject":{"identity":"agent456","identity_system":"custom"}}}
+{"aaip_version":"1.0","delegation":{"constraints":{"max_amount":{"currency":"USD","value":500}},"expires_at":"2025-07-24T10:00:00Z","id":"del_01H8QK9J2M3N4P5Q6R7S8T9V0W","issued_at":"2025-07-23T10:00:00Z","issuer":{"identity":"user123","identity_system":"custom","public_key":"abc123"},"not_before":"2025-07-23T10:00:00Z","scope":["payments:authorize"],"subject":{"identity":"agent456","identity_system":"custom"}}}
 ```
 
 ## 4. Scope System
@@ -165,12 +165,12 @@ Scopes use dot notation for hierarchical permissions:
 ```
 service.action.resource
 ├── payments
-│   ├── payments.authorize (can authorize payments)
+│   ├── payments:authorize (can authorize payments)
 │   ├── payments.read (can view payment history)
 │   └── payments.refund (can process refunds)
 ├── calendar
 │   ├── calendar.read (can view calendar events)
-│   ├── calendar.write (can create/modify events)
+│   ├── calendar:write (can create/modify events)
 │   └── calendar.share (can share calendar access)
 └── data
     ├── data.read.personal (can read personal data)
@@ -182,7 +182,7 @@ service.action.resource
 
 More specific scopes inherit permissions from broader scopes:
 - `payments` grants all payment-related permissions
-- `payments.authorize` grants only authorization permission
+- `payments:authorize` grants only authorization permission
 - Scopes MUST be validated from most specific to least specific
 
 ### 4.3 Reserved Scopes
@@ -536,7 +536,7 @@ Custom fields can be added to delegations using vendor prefixes:
 ```json
 {
   "delegation": {
-    "scope": ["payments.authorize"],
+    "scope": ["payments:authorize"],
     "x-vendor-custom-field": "custom-value",
     "x-another-vendor-extension": {
       "custom": "data"
@@ -592,7 +592,7 @@ Custom fields can be added to delegations using vendor prefixes:
       "identity": "agent_assistant_v2",
       "identity_system": "custom"
     },
-    "scope": ["payments.authorize"],
+    "scope": ["payments:authorize"],
     "constraints": {
       "max_amount": {"value": 100, "currency": "USD"},
       "merchant_whitelist": ["amazon.com", "uber.com"]
@@ -622,12 +622,12 @@ Custom fields can be added to delegations using vendor prefixes:
       "identity_system": "agntcy"
     },
     "scope": [
-      "flights.search",
-      "flights.book", 
-      "hotels.search",
-      "hotels.book",
-      "payments.authorize",
-      "calendar.write"
+      "flights:search",
+      "flights:book", 
+      "hotels:search",
+      "hotels:book",
+      "payments:authorize",
+      "calendar:write"
     ],
     "constraints": {
       "max_amount": {"value": 3000, "currency": "USD"},
