@@ -16,7 +16,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     
@@ -27,7 +27,7 @@ jobs:
     
     - name: Run tests
       run: |
-        pytest --cov=aaip --cov-report=xml
+        pytest
 
   build-and-publish:
     needs: test
@@ -37,7 +37,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
     
@@ -62,7 +62,7 @@ jobs:
         twine upload dist/*
     
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: dist/*
         generate_release_notes: true
