@@ -284,74 +284,45 @@ Services MUST validate constraints before executing agent requests:
 3. Unknown constraints are ignored
 4. Constraint violations MUST reject the request
 
-## 6. Identity Adapter Interface
+## 6. Identity Format
 
-### 6.1 Purpose
+### 6.1 Identity String Format
 
-Identity adapters enable AAIP to work with any underlying identity system by providing a standardized interface for identity verification.
+AAIP uses simple string identifiers for both users and agents:
 
-### 6.2 Adapter Interface
+- **OAuth/Email**: `"user@example.com"`
+- **DID**: `"did:example:123456"`  
+- **Custom**: Any string identifier
 
-```python
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+### 6.2 Self-Contained Verification
 
-class IdentityAdapter(ABC):
-    @abstractmethod
-    def verify_identity(self, identity: str, proof: Dict[str, Any]) -> bool:
-        """Verify that the provided proof validates the identity."""
-        pass
-    
-    @abstractmethod
-    def extract_public_key(self, identity: str) -> Optional[str]:
-        """Extract or derive the public key for this identity."""
-        pass
-    
-    @abstractmethod
-    def normalize_identity(self, identity: str) -> str:
-        """Convert identity to canonical format for this system."""
-        pass
-    
-    @abstractmethod
-    def get_identity_metadata(self, identity: str) -> Dict[str, Any]:
-        """Get additional metadata about this identity."""
-        pass
+AAIP delegations include the issuer's public key directly:
+
+```json
+{
+  "issuer": {
+    "id": "user@example.com",
+    "type": "oauth", 
+    "public_key": "ed25519-public-key-hex"
+  }
+}
 ```
 
-### 6.3 Standard Adapters
+### 6.3 Identity Validation
 
-#### 6.3.1 DID Adapter
 ```python
-class DIDAdapter(IdentityAdapter):
-    def verify_identity(self, identity: str, proof: Dict[str, Any]) -> bool:
-        # Verify DID document signature
-        pass
-    
-    def extract_public_key(self, identity: str) -> Optional[str]:
-        # Extract key from DID document
-        pass
-```
+def validate_identity_format(identity: str, identity_type: str) -> bool:
+    if not identity or not isinstance(identity, str):
+        return False
 
-#### 6.3.2 OAuth Adapter
-```python
-class OAuthAdapter(IdentityAdapter):
-    def verify_identity(self, identity: str, proof: Dict[str, Any]) -> bool:
-        # Verify OAuth token with issuer
-        pass
-    
-    def extract_public_key(self, identity: str) -> Optional[str]:
-        # Derive key from OAuth client credentials
-        pass
-```
-
-#### 6.3.3 Custom Adapter
-```python
-class CustomAdapter(IdentityAdapter):
-    def __init__(self, identity_resolver_func):
-        self.resolver = identity_resolver_func
-    
-    def verify_identity(self, identity: str, proof: Dict[str, Any]) -> bool:
-        return self.resolver(identity, proof)
+    if identity_type == "did":
+        return identity.startswith("did:")
+    elif identity_type == "oauth":
+        return "@" in identity
+    elif identity_type == "custom":
+        return len(identity) > 0
+    else:
+        return True
 ```
 
 ## 7. Cryptographic Security
