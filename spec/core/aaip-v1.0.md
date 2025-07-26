@@ -1,6 +1,6 @@
 # AI Agent Identity Protocol (AAIP) v1.0 Specification
 
-> Complete identity solution for AI agents - verification, authorization, and delegation
+> Standard delegation format for AI agent authorization
 
 **Status**: Draft  
 **Version**: 1.0  
@@ -9,39 +9,31 @@
 
 ## Abstract
 
-The AI Agent Identity Protocol (AAIP) provides a universal authorization layer for AI agents that works with any underlying identity system. While existing identity solutions solve agent verification ("who is this agent?"), AAIP adds the missing piece: user authorization and delegation ("what can this agent do on my behalf?").
-
-AAIP enables users to grant specific, time-bounded, and constrained permissions to AI agents while maintaining cryptographic proof of authorization and complete audit trails.
+The AI Agent Identity Protocol (AAIP) defines a standard format for users to grant specific, time-bounded, and constrained permissions to AI agents. AAIP delegations are self-contained cryptographically signed messages that enable secure agent authorization without requiring central infrastructure.
 
 ## 1. Introduction
 
 ### 1.1 Problem Statement
 
-Current AI agent infrastructure has a critical gap:
-
-- &#x2713; **Identity Verification**: Multiple solutions exist (Agntcy, DIDs, OAuth, etc.)
-- &#x2717; **Authorization & Delegation**: No standardized way for users to grant specific permissions to agents
-
-This creates security risks, limits agent capabilities, and prevents enterprise adoption.
+AI agents need to prove they have user authorization to perform specific actions on behalf of users. Current solutions focus on agent identity verification but lack a standardized format for representing user-granted permissions.
 
 ### 1.2 Solution Overview
 
-AAIP provides a universal authorization layer that:
+AAIP provides:
 
-1. **Works with any identity system** via adapters
-2. **Enables user delegation** with cryptographic proof
-3. **Supports fine-grained permissions** and constraints
-4. **Provides audit trails** for accountability
-5. **Maintains security** through time-bounded tokens and minimal privilege
+1. **Standard delegation format** with Ed25519 cryptographic signatures
+2. **Self-contained tokens** with embedded public keys for verification
+3. **Hierarchical scope system** for fine-grained permissions
+4. **Built-in constraints** for spending limits, time windows, and content filtering
+5. **Stateless design** requiring no central authority or registry
 
 ### 1.3 Design Principles
 
-- **Identity System Agnostic**: Works with any underlying identity (DIDs, OAuth, custom, etc.)
-- **Cryptographically Secure**: Ed25519 signatures and verifiable delegations
+- **Self-Contained**: Delegations include all data needed for verification
+- **Stateless**: No central authority or registry required
+- **Cryptographically Secure**: Ed25519 signatures per RFC 8037
+- **Time-Bounded**: All delegations have explicit expiration
 - **Minimal Privilege**: Scoped permissions with explicit constraints
-- **Time-Bounded**: All delegations have expiration times
-- **Auditable**: Complete trail of authorizations and actions
-- **Revocable**: Users can instantly withdraw permissions
 
 ## 2. Core Concepts
 
@@ -49,37 +41,29 @@ AAIP provides a universal authorization layer that:
 
 #### 2.1.1 User
 - Human or organization granting permissions
-- Controls delegation creation and revocation
-- May use any identity system for authentication
+- Creates and signs delegations using their private key
+- Identity represented as string (email, DID, custom identifier)
 
 #### 2.1.2 Agent
 - AI system acting on behalf of users
-- Has an identity from any supported identity system
-- Presents delegations when accessing services
+- Presents delegations to prove authorization
+- Identity represented as string
 
 #### 2.1.3 Service
-- API, platform, or system that agents interact with
-- Validates both agent identity and AAIP delegations
-- Enforces authorization constraints
-
-#### 2.1.4 Identity Adapter
-- Bridge between AAIP and specific identity systems
-- Standardizes identity verification across systems
-- Enables AAIP to work with any identity format
+- API or system that agents interact with
+- Validates delegation signatures and constraints
+- Makes authorization decisions based on delegation content
 
 ### 2.2 Key Concepts
 
 #### 2.2.1 Delegation
-A cryptographically signed authorization token that grants specific permissions to an agent for a limited time with explicit constraints.
+A cryptographically signed message that grants specific permissions to an agent for a limited time with explicit constraints.
 
 #### 2.2.2 Scope
-Hierarchical permission identifiers (e.g., `payments:authorize`, `calendar:read`) that define what actions an agent can perform.
+Hierarchical permission identifiers using colon notation (e.g., `payments:send`, `data:read:profile`) with wildcard support.
 
 #### 2.2.3 Constraints
-Additional limitations on delegations (e.g., spending limits, time windows, data filters) that services must enforce.
-
-#### 2.2.4 Audit Trail
-Immutable record of delegation creation, usage, and revocation for accountability and compliance.
+Limitations on delegations including spending limits, time windows, domain restrictions, and content filtering.
 
 ## 3. Delegation Format
 
@@ -123,29 +107,24 @@ Immutable record of delegation creation, usage, and revocation for accountabilit
 
 ### 3.2 Field Definitions
 
-#### 3.2.1 Header Fields
+#### 3.2.1 Required Fields
 - `aaip_version`: Protocol version (currently "1.0")
+- `delegation.id`: Unique delegation identifier (prefixed with `del_`)
+- `delegation.issuer`: User granting the delegation
+  - `id`: User's identity string (format depends on type)
+  - `type`: Identity system type (`oauth`, `did`, `custom`)
+  - `public_key`: Ed25519 public key for signature verification (hex format)
+- `delegation.subject`: Agent receiving the delegation
+  - `id`: Agent's identity string
+  - `type`: Identity system type
+- `delegation.scope`: Array of permission identifiers with wildcard support
+- `delegation.issued_at`: When delegation was created (ISO 8601)
+- `delegation.expires_at`: When delegation expires (ISO 8601)
+- `delegation.not_before`: When delegation becomes valid (ISO 8601)
+- `signature`: Ed25519 signature over canonical JSON (hex format)
 
-#### 3.2.2 Delegation Fields
-- `id`: Unique delegation identifier (prefixed with `del_`)
-- `issuer`: User granting the delegation
-  - `id`: User's identity string (format depends on identity type)
-  - `type`: Identity system type (`oauth`, `did`, `custom`, etc.)
-  - `public_key`: Ed25519 public key for signature verification
-- `subject`: Agent receiving the delegation
-  - `id`: Agent's identity string (format depends on identity type)
-  - `type`: Identity system type (`oauth`, `did`, `custom`, etc.)
-- `scope`: Array of permission identifiers with wildcard support
-  - Exact match: `"payments:send"` grants exactly that permission
-  - Wildcard match: `"data:read:*"` grants all permissions starting with `data:read:`
-  - Full wildcard: `"payments:*"` grants all payment-related permissions
-- `constraints`: Optional additional limitations (see Section 4)
-- `issued_at`: When delegation was created (ISO 8601)
-- `expires_at`: When delegation expires (ISO 8601)
-- `not_before`: When delegation becomes valid (ISO 8601)
-
-#### 3.2.3 Signature
-Ed25519 signature over the canonical JSON representation of the delegation object.
+#### 3.2.2 Optional Fields
+- `delegation.constraints`: Additional limitations (see Section 5)
 
 ### 3.3 Canonical Serialization
 
@@ -154,7 +133,7 @@ For signature verification, delegations MUST be serialized using deterministic J
 1. Remove all whitespace
 2. Sort object keys alphabetically at all levels
 3. Use UTF-8 encoding
-4. No trailing commas or optional fields
+4. No trailing commas
 
 Example canonical form:
 ```json
@@ -171,17 +150,13 @@ Scopes use colon notation for hierarchical permissions:
 service:action:resource
 ├── payments:send
 ├── payments:refund  
-├── payments:cancel
 ├── data:read:profile
-├── data:read:email
 ├── data:write:profile
 ├── email:send
 └── calendar:read
 ```
 
 ### 4.2 Wildcard Support
-
-Scopes support wildcard matching using `*`:
 
 ```json
 {
@@ -258,31 +233,12 @@ Controls which domains agents can interact with. Supports wildcard patterns:
 
 Prevents agents from using specified keywords in content (case-insensitive matching).
 
-### 5.2 Extended Constraints
-
-Services may implement additional constraints:
-
-```json
-{
-  "payment_methods": ["card", "bank_transfer"],
-  "shipping_regions": ["US", "CA", "GB"],
-  "data_classification": ["public", "internal"],
-  "acme.com:approval_required": {"manager": "john@acme.com"}
-}
-```
-
-**Constraint Types:**
-- **Standard constraints** (Section 4.1): All implementations MUST support
-- **Extended constraints** (no namespace): Industry-specific, implementations MAY support  
-- **Proprietary constraints** (with namespace): Organization-specific
-
-### 5.3 Constraint Validation
+### 5.2 Constraint Validation
 
 Services MUST validate constraints before executing agent requests:
 1. Standard constraints MUST be enforced
-2. Extended/proprietary constraints MAY be enforced
-3. Unknown constraints are ignored
-4. Constraint violations MUST reject the request
+2. Unknown constraints are ignored
+3. Constraint violations MUST reject the request
 
 ## 6. Identity Format
 
@@ -296,7 +252,7 @@ AAIP uses simple string identifiers for both users and agents:
 
 ### 6.2 Self-Contained Verification
 
-AAIP delegations include the issuer's public key directly:
+AAIP delegations include the issuer's public key directly in the delegation:
 
 ```json
 {
@@ -308,31 +264,25 @@ AAIP delegations include the issuer's public key directly:
 }
 ```
 
+This enables verification without external key lookup.
+
 ### 6.3 Identity Validation
 
-```python
-def validate_identity_format(identity: str, identity_type: str) -> bool:
-    if not identity or not isinstance(identity, str):
-        return False
+Identity strings are validated based on their declared type:
 
-    if identity_type == "did":
-        return identity.startswith("did:")
-    elif identity_type == "oauth":
-        return "@" in identity
-    elif identity_type == "custom":
-        return len(identity) > 0
-    else:
-        return True
-```
+- `did` type: Must start with "did:"
+- `oauth` type: Must contain "@" character
+- `custom` type: Must be non-empty string
+- Unknown types: Rejected
 
 ## 7. Cryptographic Security
 
 ### 7.1 Signature Algorithm
 
 AAIP uses Ed25519 for all signatures:
-- **Public Key**: 32 bytes
-- **Private Key**: 32 bytes  
-- **Signature**: 64 bytes
+- **Public Key**: 32 bytes (64 hex characters)
+- **Private Key**: 32 bytes (64 hex characters)
+- **Signature**: 64 bytes (128 hex characters)
 - **Encoding**: Hexadecimal for JSON representation
 
 ### 7.2 Signature Process
@@ -349,87 +299,63 @@ AAIP uses Ed25519 for all signatures:
 3. **Verify Ed25519 signature** using issuer's public key
 4. **Validate delegation constraints** and expiration
 
-### 7.4 Key Management
-
-- Users **MUST** securely store private keys
-- Public keys **MUST** be discoverable via identity systems
-- Key rotation **SHOULD** be supported by identity adapters
-- Compromised keys **MUST** result in delegation revocation
-
-### 7.5 Security Considerations
+### 7.4 Security Considerations
 
 - **Replay attacks**: Prevented by unique delegation IDs and expiration times
 - **Man-in-the-middle**: Prevented by cryptographic signatures
 - **Privilege escalation**: Prevented by explicit scope validation
 - **Data integrity**: Ensured by signature verification
 
-## 8. Protocol Flows
+## 8. Protocol Usage
 
-### 8.1 Delegation Creation
+### 8.1 Basic Flow
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant AAIP
-    participant Agent
-    participant IdentitySystem
-    
-    User->>AAIP: Request delegation creation
-    AAIP->>IdentitySystem: Verify user identity
-    IdentitySystem-->>AAIP: Identity confirmed
-    AAIP->>AAIP: Generate delegation
-    AAIP->>AAIP: Sign with user's private key
-    AAIP-->>User: Return signed delegation
-    User->>Agent: Provide delegation
+```
+1. User creates delegation with scope and constraints
+2. User signs delegation with their private key
+3. User provides delegation to agent
+4. Agent presents delegation to service
+5. Service verifies signature and validates constraints
+6. Service grants or denies access based on delegation
 ```
 
-### 8.2 Agent Authorization
+### 8.2 Verification Steps
 
-```mermaid
-sequenceDiagram
-    participant Agent
-    participant Service
-    participant AAIP
-    participant IdentitySystem
-    
-    Agent->>Service: Request with delegation
-    Service->>IdentitySystem: Verify agent identity
-    IdentitySystem-->>Service: Identity valid
-    Service->>AAIP: Verify delegation signature
-    AAIP-->>Service: Signature valid
-    Service->>Service: Check constraints & scope
-    Service-->>Agent: Authorized response
-```
+Services MUST perform these verification steps in order:
 
-### 8.3 Delegation Revocation
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant AAIP
-    participant Service
-    participant Agent
-    
-    User->>AAIP: Revoke delegation
-    AAIP->>AAIP: Add to revocation list
-    AAIP->>Service: Notify revocation
-    Service->>Service: Update revocation cache
-    Agent->>Service: Request with revoked delegation
-    Service-->>Agent: 403 Forbidden (revoked)
-```
+1. **Format Validation**: Check all required fields exist
+2. **Version Check**: Ensure `aaip_version` is supported
+3. **Time Validation**: Check `expires_at`, `not_before`, and `issued_at`
+4. **Signature Verification**: Verify Ed25519 signature using embedded public key
+5. **Scope Check**: Validate requested action against delegation scope
+6. **Constraint Enforcement**: Apply all standard constraints
 
 ## 9. Error Handling
 
-### 9.1 Error Response Format
+### 9.1 Standard Error Codes
+
+- `INVALID_DELEGATION`: Malformed delegation format
+- `MISSING_REQUIRED_FIELD`: Required field missing from delegation
+- `INVALID_FIELD_FORMAT`: Field value has incorrect format
+- `SIGNATURE_INVALID`: Cryptographic signature verification failed
+- `DELEGATION_EXPIRED`: Delegation past expiration time
+- `DELEGATION_NOT_YET_VALID`: Delegation before not_before time
+- `SCOPE_INSUFFICIENT`: Required permission not granted
+- `CONSTRAINT_VIOLATED`: Request violates delegation constraints
+- `IDENTITY_VERIFICATION_FAILED`: Agent identity could not be verified
+
+### 9.2 Error Response Format
+
+Services SHOULD return structured error responses:
 
 ```json
 {
   "error": {
-    "code": "AAIP_ERROR_CODE",
-    "message": "Human readable description",
+    "code": "CONSTRAINT_VIOLATED",
+    "message": "Amount 1500 exceeds maximum 1000 USD",
     "details": {
       "delegation_id": "del_01H8QK9J2M3N4P5Q6R7S8T9V0W",
-      "constraint_violated": "max_amount",
+      "constraint_type": "max_amount",
       "attempted_value": 1500,
       "limit": 1000
     }
@@ -437,139 +363,33 @@ sequenceDiagram
 }
 ```
 
-### 9.2 Standard Error Codes
-
-- `INVALID_DELEGATION`: Malformed delegation format
-- `SIGNATURE_INVALID`: Cryptographic signature verification failed
-- `DELEGATION_EXPIRED`: Delegation past expiration time
-- `DELEGATION_NOT_YET_VALID`: Delegation before not_before time
-- `DELEGATION_REVOKED`: Delegation has been revoked
-- `SCOPE_INSUFFICIENT`: Required permission not granted
-- `CONSTRAINT_VIOLATED`: Request violates delegation constraints
-- `IDENTITY_VERIFICATION_FAILED`: Agent identity could not be verified
-- `RATE_LIMIT_EXCEEDED`: Too many requests within time window
-
-### 9.3 Error Handling Best Practices
-
-- Log all authorization failures for audit
-- Provide specific error messages for debugging
-- Don't leak sensitive information in error responses
-- Implement exponential backoff for rate limiting
-- Cache revocation lists to prevent revoked delegation usage
-
 ## 10. Implementation Guidelines
 
-### 10.1 For Identity System Providers
+### 10.1 For Service Providers
 
-1. **Implement AAIP adapter** for your identity format
-2. **Provide public key discovery** mechanism
-3. **Support delegation metadata** in identity documents
-4. **Consider AAIP delegation management** in your tools
+1. **Implement delegation verification** according to Section 8.2
+2. **Define clear scope hierarchies** for your service's capabilities
+3. **Enforce all standard constraints** as defined in Section 5.1
+4. **Return structured errors** following Section 9.2
 
-### 10.2 For Agent Framework Maintainers
+### 10.2 For Application Developers
 
-1. **Add AAIP authorization layer** to your framework
-2. **Integrate with multiple identity adapters**
-3. **Provide delegation management utilities**
-4. **Include constraint validation helpers**
+1. **Always specify explicit timestamps** for delegation time bounds
+2. **Follow principle of least privilege** when defining scopes
+3. **Validate ISO 8601 timestamp formats** before creating delegations
+4. **Use secure key generation** for Ed25519 keypairs
 
-### 10.3 For Service Providers
+### 10.3 Library Implementation
 
-1. **Implement delegation verification** in your APIs
-2. **Define clear scope hierarchies** for your services
-3. **Enforce all delegation constraints**
-4. **Provide audit trails** for delegation usage
+AAIP libraries SHOULD provide:
+- Delegation creation and signing functions
+- Delegation verification and validation
+- Constraint enforcement utilities
+- Standard error types and handling
 
-### 10.4 For Application Developers
+## 11. Examples
 
-1. **Use existing AAIP libraries** when possible
-2. **Follow principle of least privilege** in scope requests
-3. **Implement proper error handling**
-4. **Respect user privacy** in delegation design
-5. **Always specify explicit timestamps** for delegation time bounds
-6. **Validate ISO 8601 timestamp formats** before creating delegations
-
-## 11. Compliance and Privacy
-
-### 11.1 GDPR Compliance
-
-- Users retain control over their data through delegation constraints
-- Right to be forgotten supported through delegation revocation
-- Data minimization achieved through scoped permissions
-- Audit trails provide transparency into data usage
-
-### 11.2 Other Regulations
-
-- **CCPA**: User control and transparency through delegations
-- **SOX**: Audit trails for financial delegations
-- **HIPAA**: Data constraints for healthcare applications
-- **PCI DSS**: Payment constraints and secure delegation storage
-
-### 11.3 Privacy Best Practices
-
-- Minimize data in delegation scopes
-- Use time-bounded delegations
-- Implement delegation revocation
-- Audit delegation usage regularly
-- Encrypt delegation storage where applicable
-
-## 12. Versioning and Extensions
-
-### 12.1 Version Compatibility
-
-- Major versions indicate breaking changes
-- Minor versions add backward-compatible features
-- Patch versions fix bugs without breaking changes
-- Services MUST support multiple AAIP versions during transitions
-
-### 12.2 Extension Mechanism
-
-Custom fields can be added to delegations using vendor prefixes:
-
-```json
-{
-  "delegation": {
-    "scope": ["payments:authorize"],
-    "x-vendor-custom-field": "custom-value",
-    "x-another-vendor-extension": {
-      "custom": "data"
-    }
-  }
-}
-```
-
-### 12.3 Future Considerations
-
-- **Multi-signature delegations**: Multiple users authorizing single agent
-- **Delegation chains**: Agents delegating to other agents
-- **Zero-knowledge proofs**: Privacy-preserving authorization
-- **Quantum-resistant signatures**: Post-quantum cryptography migration
-
-## 13. References
-
-### 13.1 Standards
-
-- [RFC 7515: JSON Web Signature (JWS)](https://tools.ietf.org/html/rfc7515)
-- [RFC 8037: CFRG Elliptic Curve Diffie-Hellman (ECDH) and Signatures in JSON Object Signing and Encryption (JOSE)](https://tools.ietf.org/html/rfc8037)
-- [W3C Decentralized Identifiers (DIDs) v1.0](https://www.w3.org/TR/did-core/)
-- [OAuth 2.0 Authorization Framework](https://tools.ietf.org/html/rfc6749)
-
-### 13.2 Cryptography
-
-- [Ed25519: high-speed high-security signatures](https://ed25519.cr.yp.to/)
-- [RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA)](https://tools.ietf.org/html/rfc8032)
-
-### 13.3 Related Work
-
-- [UCAN: User Controlled Authorization Networks](https://ucan.xyz/)
-- [Macaroons: Cookies with Contextual Caveats](https://research.google/pubs/pub41892/)
-- [Object Capability Model](https://en.wikipedia.org/wiki/Object-capability_model)
-
----
-
-## Appendix A: Complete Examples
-
-### A.1 Simple Payment Authorization
+### 11.1 Simple Payment Authorization
 
 ```json
 {
@@ -577,12 +397,12 @@ Custom fields can be added to delegations using vendor prefixes:
   "delegation": {
     "id": "del_payment_example_001",
     "issuer": {
-      "id": "did:example:user123",
-      "type": "did",
+      "id": "alice@example.com",
+      "type": "oauth",
       "public_key": "b0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1"
     },
     "subject": {
-      "id": "agent_assistant_v2",
+      "id": "payment_agent_v1",
       "type": "custom"
     },
     "scope": ["payments:authorize"],
@@ -598,138 +418,57 @@ Custom fields can be added to delegations using vendor prefixes:
 }
 ```
 
-### A.2 Complex Multi-Service Authorization
+### 11.2 Multi-Service Authorization
 
 ```json
 {
   "aaip_version": "1.0", 
   "delegation": {
-    "id": "del_travel_agent_001",
+    "id": "del_assistant_001",
     "issuer": {
-      "id": "alice@example.com",
+      "id": "user@company.com",
       "type": "oauth",
       "public_key": "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8e9f0a1b2"
     },
     "subject": {
-      "id": "did:agntcy:travel_assistant_001",
-      "type": "agntcy"
+      "id": "personal_assistant",
+      "type": "custom"
     },
     "scope": [
-      "flights:search",
-      "flights:book", 
-      "hotels:search",
-      "hotels:book",
-      "payments:authorize",
-      "calendar:write"
+      "email:send",
+      "calendar:write", 
+      "payments:authorize"
     ],
     "constraints": {
-      "max_amount": {"value": 3000, "currency": "USD"},
+      "max_amount": {"value": 50, "currency": "USD"},
       "time_window": {
-        "start": "2025-08-15T00:00:00Z",
-        "end": "2025-08-25T23:59:59Z"
+        "start": "2025-07-23T09:00:00Z",
+        "end": "2025-07-23T17:00:00Z"
       },
-      "allowed_domains": ["booking.com", "expedia.com", "*.hotels.com"],
-      "travel:destinations": ["NYC", "LAX", "CHI"],
-      "travel:hotel_rating_min": 3,
-      "travel:flight_class": ["economy", "premium_economy"]
+      "allowed_domains": ["company.com"],
+      "blocked_keywords": ["urgent", "asap"]
     },
-    "issued_at": "2025-07-23T14:30:00Z",
-    "expires_at": "2025-07-30T23:59:59Z",
-    "not_before": "2025-07-23T14:30:00Z"
+    "issued_at": "2025-07-23T08:30:00Z",
+    "expires_at": "2025-07-23T18:00:00Z",
+    "not_before": "2025-07-23T09:00:00Z"
   },
   "signature": "d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8e9f0a1b2c3d4e5f6a7b8c9d0e1f2"
 }
 ```
 
-## Appendix B: Reference Implementation Pseudocode
+## 12. References
 
-### B.1 Delegation Creation
+### 12.1 Standards
 
-```python
-def create_delegation(
-    issuer_identity: str,
-    issuer_private_key: str,
-    agent_identity: str,
-    scope: List[str],
-    expires_at: str,
-    not_before: str,
-    constraints: Dict[str, Any] = None
-) -> Dict[str, Any]:
-    
-    # Validate timestamp formats
-    validate_iso8601_timestamp(expires_at)
-    validate_iso8601_timestamp(not_before)
-    
-    now = datetime.utcnow()
-    
-    delegation = {
-        "aaip_version": "1.0",
-        "delegation": {
-            "id": generate_delegation_id(),
-            "issuer": {
-                "id": issuer_identity,
-                "type": detect_identity_system(issuer_identity),
-                "public_key": derive_public_key(issuer_private_key)
-            },
-            "subject": {
-                "id": agent_identity,
-                "type": detect_identity_system(agent_identity)
-            },
-            "scope": scope,
-            "constraints": constraints or {},
-            "issued_at": now.isoformat() + "Z",
-            "expires_at": expires_at,
-            "not_before": not_before
-        }
-    }
-    
-    canonical_json = serialize_canonical(delegation)
-    signature = ed25519_sign(issuer_private_key, canonical_json.encode('utf-8'))
-    delegation["signature"] = signature.hex()
-    
-    return delegation
-```
+- [RFC 8037: CFRG Elliptic Curve Signatures in JOSE](https://tools.ietf.org/html/rfc8037)
+- [RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA)](https://tools.ietf.org/html/rfc8032)
+- [ISO 8601: Date and time format](https://www.iso.org/iso-8601-date-and-time-format.html)
+- [ISO 4217: Currency codes](https://www.iso.org/iso-4217-currency-codes.html)
 
-### B.2 Delegation Verification
+### 12.2 Cryptography
 
-```python
-def verify_delegation(
-    delegation: Dict[str, Any],
-    identity_adapter: IdentityAdapter
-) -> bool:
-    
-    # Extract signature
-    signature_hex = delegation.pop("signature")
-    signature = bytes.fromhex(signature_hex)
-    
-    # Verify delegation format
-    if not validate_delegation_format(delegation):
-        return False
-    
-    # Check expiration
-    now = datetime.utcnow()
-    expires_at = datetime.fromisoformat(delegation["delegation"]["expires_at"].rstrip('Z'))
-    not_before = datetime.fromisoformat(delegation["delegation"]["not_before"].rstrip('Z'))
-    
-    if now >= expires_at or now < not_before:
-        return False
-    
-    # Verify agent identity
-    agent_identity = delegation["delegation"]["subject"]["id"]
-    if not identity_adapter.verify_identity(agent_identity, {}):
-        return False
-    
-    # Verify issuer signature
-    issuer_public_key = delegation["delegation"]["issuer"]["public_key"]
-    canonical_json = serialize_canonical(delegation)
-    
-    return ed25519_verify(
-        bytes.fromhex(issuer_public_key),
-        canonical_json.encode('utf-8'),
-        signature
-    )
-```
+- [Ed25519: high-speed high-security signatures](https://ed25519.cr.yp.to/)
 
 ---
 
-*This specification defines AAIP v1.0 - the complete identity solution for AI agents.*
+*This specification defines AAIP v1.0 - a standard delegation format for AI agent authorization.*

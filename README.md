@@ -1,393 +1,317 @@
-# AI Agent Identity Protocol (AAIP)
-> Complete identity solution for AI agents - verification, authorization, and delegation
+# AI Agent Identity Protocol (AAIP) v1.0
 
-[![GitHub Stars](https://img.shields.io/github/stars/krisdiallo/aaip-spec)](https://github.com/aaip-protocol/aaip-spec/stargazers)
+> Standard delegation format for AI agent authorization
+
+[![GitHub Stars](https://img.shields.io/github/stars/krisdiallo/aaip-spec)](https://github.com/krisdiallo/aaip-spec/stargazers)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Compatibility](https://img.shields.io/badge/Works_with-Any_Identity_System-green)](docs/identity-adapters.md)
+[![Version](https://img.shields.io/badge/AAIP-v1.0-blue)](#specification)
 
-## The Missing Layer in Agent Infrastructure
+## What is AAIP?
 
-AI agents need complete identity infrastructure, but current solutions only solve half the problem:
+AAIP is a standard format for users to grant specific, time-bounded, and constrained permissions to AI agents. It provides cryptographically signed delegations that enable secure agent authorization without requiring central infrastructure.
 
-- ✅ **Agent Verification**: "Who is this agent?" *(Partially solved by existing identity systems)*
-- ❌ **Authorization & Delegation**: "What can this agent do on my behalf?"
+## Key Features
 
-AAIP provides the complete solution - both verification and authorization in one protocol.
+- **Standard Delegation Format**: JSON-based signed delegations with Ed25519 cryptography
+- **Self-Contained Verification**: Delegations include all data needed for verification
+- **Hierarchical Scopes**: Fine-grained permissions with wildcard support  
+- **Standard Constraints**: Built-in spending limits, time windows, and content filtering
+- **Stateless Design**: No central authority or registry required
+- **Protocol-First**: Simple foundation for building agent authorization systems
 
-## The Solution
-
-AAIP provides complete agent identity infrastructure - combining verification with authorization:
-
-**What existing identity systems give you:**
-- Agent verification: "This agent is authentic"
-- Basic capabilities: "This agent can browse the web"
-
-**What AAIP adds:**
-- User delegation: "I authorize this agent to act for me"
-- Scoped permissions: "Only for booking travel, max $2000"
-- Time constraints: "Valid for 24 hours only"
-- Audit trails: "Show me everything it did"
+## Quick Example
 
 ```python
-# Works with your existing agent identity
-agent = your_existing_agent  # Any framework, any identity system
+from aaip import create_signed_delegation, verify_delegation, generate_keypair
 
-# User grants specific authorization via AAIP
-delegation = create_aaip_delegation(
-    agent_identity=agent.identity,  # Works with any identity format
-    scope=["airline:book_flights", "hotel:make_reservations"],
-    constraints={"max_spend": "$2000", "trip_dates": "2025-03-15:2025-03-17"},
-    expires_in="24_hours"
-)
+# Generate keypair for signing
+private_key, public_key = generate_keypair()
 
-# Agent acts with cryptographic proof of complete identity
-result = agent.book_flight("SFO to NYC", delegation)
-```
-
-## Complete Identity Infrastructure
-
-AAIP works with any underlying identity system while adding the missing authorization layer:
-
-| Identity System | Status | What It Provides | AAIP Adds |
-|----------------|---------|------------------|-----------|
-| **Agntcy Identity** | ✅ Supported | Agent verification | User delegation & constraints |
-| **Decentralized IDs (DIDs)** | ✅ Supported | Decentralized identity | Authorization & audit trails |
-| **OAuth 2.0 / OIDC** | ✅ Supported | Service authentication | Agent-specific permissions |
-| **Custom Identity** | ✅ Supported | Your identity format | Standardized authorization |
-| **API Keys** | ✅ Supported | Basic auth | Scoped delegations & limits |
-| **Enterprise SSO** | 🔄 Coming Soon | Corporate identity | Role-based agent permissions |
-
-## Quick Start with Any Agent Framework
-
-### LangChain Agents
-```python
-from langchain.agents import create_agent
-from aaip import add_authorization_layer
-
-# Your existing LangChain agent
-agent = create_agent(llm, tools)
-
-# Add AAIP authorization (works with any identity)
-authorized_agent = add_authorization_layer(agent)
-
-# User grants permissions
-delegation = user.grant_permissions(
-    agent_id=agent.identity,
-    scope=["payments:authorize", "calendar:read"],
-    constraints={"max_amount": "$500"}
-)
-
-# Agent executes with authorization proof
-result = authorized_agent.run("book dinner reservation", delegation)
-```
-
-### CrewAI Agents
-```python
-from crewai import Agent
-from aaip.integrations.crewai import AAIPCrewAgent
-
-# Your existing CrewAI setup
-agent = Agent(role="travel_assistant", tools=[booking_tool])
-
-# Wrap with AAIP authorization
-aaip_agent = AAIPCrewAgent(agent)
-
-# Now supports user delegations
-delegation = create_delegation(agent.identity, ["travel.book", "payments.charge"])
-result = aaip_agent.execute_task(task, delegation)
-```
-
-### Custom Agents
-```python
-from aaip.core import AuthorizedAgent
-from aaip.adapters import CustomAdapter
-
-# Your existing agent with any identity system
-class MyAgent:
-    def __init__(self):
-        self.identity = "my-custom-identity-format"
-    
-    def execute(self, task):
-        # Your agent logic
-        pass
-
-# Add AAIP authorization
-identity_adapter = CustomAdapter(lambda agent: agent.identity)
-authorized_agent = AuthorizedAgent(MyAgent(), identity_adapter)
-
-# Now supports delegations with any identity format
-delegation = create_delegation(
-    identity=authorized_agent.identity,
-    scope=["api:call", "data:read"],
-    constraints={"rate_limit": "100/hour"}
-)
-```
-
-## Real-World Use Cases
-
-### Consumer Scenarios
-- **Personal Assistant**: Manage calendar, email, and payments with spending limits
-- **Travel Agent**: Book flights/hotels across multiple platforms with constraints
-- **Shopping Assistant**: Purchase items with brand/price preferences and budgets
-- **Healthcare Agent**: Schedule appointments and refill prescriptions safely
-
-### Enterprise Scenarios
-- **Workflow Automation**: Agents accessing SaaS tools with role-based permissions
-- **Customer Service**: Agents handling tickets with escalation and compliance rules
-- **Data Processing**: Agents analyzing sensitive data with privacy constraints
-- **DevOps Automation**: Infrastructure management with safety boundaries
-
-## Architecture: Universal Authorization Layer
-
-```mermaid
-graph TB
-    User[👤 User] --> |Grants Permission| AAIP[🎫 AAIP Delegation]
-    
-    subgraph "Any Identity System"
-        Agntcy[🆔 Agntcy]
-        DIDs[🆔 DIDs] 
-        OAuth[🆔 OAuth]
-        Custom[🆔 Custom]
-    end
-    
-    subgraph "Any Agent Framework"
-        LangChain[🦜 LangChain]
-        CrewAI[👥 CrewAI]
-        CustomAgent[🤖 Custom]
-    end
-    
-    Agent[🤖 Agent] --> |Uses Any| Agntcy
-    Agent --> |Uses Any| DIDs
-    Agent --> |Uses Any| OAuth
-    Agent --> |Uses Any| Custom
-    
-    Agent --> |Runs On| LangChain
-    Agent --> |Runs On| CrewAI  
-    Agent --> |Runs On| CustomAgent
-    
-    Agent --> |Receives| AAIP
-    Agent --> |Acts with Both| Service[🏢 Service/API]
-    Service --> |Verifies Identity| Agntcy
-    Service --> |Validates Authorization| AAIP
-    Service --> |Logs Action| Audit[📝 Audit Trail]
-```
-
-## Security & Privacy
-
-### Cryptographic Foundation
-- **Ed25519 signatures** for delegation verification
-- **Time-bounded tokens** prevent replay attacks
-- **Scope validation** ensures minimal privilege
-- **Audit trails** provide complete accountability
-
-### Privacy Protection
-- **Data minimization**: Only necessary information in delegations
-- **Selective disclosure**: Users control what agents can access
-- **Right to revoke**: Instant permission withdrawal
-- **No central authority**: Decentralized verification
-
-### Identity System Independence
-- **No identity lock-in**: Switch underlying identity systems without losing authorization capabilities
-- **Adapter isolation**: Issues with one identity system don't affect AAIP functionality
-- **Forward compatibility**: New identity systems easily integrated
-- **Complete solution**: Both verification and authorization in one protocol
-
-## Framework Integrations
-
-### Supported Frameworks
-- **LangChain**: Full integration with agents, tools, and chains
-- **CrewAI**: Multi-agent authorization with role-based permissions
-- **LlamaIndex**: Query engines with data access controls
-- **OpenAI Assistants**: Function calling with user-granted permissions
-- **Autogen**: Multi-agent conversations with authorization boundaries
-- **Custom Frameworks**: Easy integration via adapter pattern
-
-### Integration Examples
-
-#### With Existing Agntcy Agents
-```python
-from aaip.adapters import AgntcyAdapter
-
-# Your existing Agntcy agent
-agntcy_agent = load_agntcy_agent("did:agntcy:123")
-
-# Add AAIP authorization layer
-adapter = AgntcyAdapter()
-authorized_agent = add_aaip_authorization(agntcy_agent, adapter)
-
-# Now supports user delegations while keeping Agntcy identity
-delegation = create_delegation(
-    identity=agntcy_agent.identity,
+# Create a signed delegation
+delegation = create_signed_delegation(
+    issuer_identity="user@example.com",
+    issuer_identity_system="oauth",
+    issuer_private_key=private_key,
+    subject_identity="agent_001", 
+    subject_identity_system="custom",
     scope=["payments:authorize"],
-    constraints={"max_amount": "$500"}
+    expires_at="2025-08-26T10:00:00Z",
+    not_before="2025-07-26T10:00:00Z",
+    constraints={
+        "max_amount": {"value": 500, "currency": "USD"},
+        "allowed_domains": ["amazon.com", "stripe.com"]
+    }
 )
+
+# Verify the delegation
+is_valid = verify_delegation(delegation)
+print(f"Delegation valid: {is_valid}")
 ```
 
-#### With DID-Based Agents
-```python
-from aaip.adapters import DIDAdapter
+## Delegation Format
 
-# Agent with DID identity
-did_agent = create_did_agent("did:example:123456")
+AAIP delegations are JSON objects with cryptographic signatures:
 
-# Add AAIP authorization
-adapter = DIDAdapter()
-authorized_agent = add_aaip_authorization(did_agent, adapter)
-
-# Create delegations using DID identity
-delegation = create_delegation(
-    identity=did_agent.did,
-    scope=["calendar:write", "email:send"]
-)
+```json
+{
+  "aaip_version": "1.0",
+  "delegation": {
+    "id": "del_01H8QK9J2M3N4P5Q6R7S8T9V0W",
+    "issuer": {
+      "id": "user@example.com",
+      "type": "oauth",
+      "public_key": "ed25519-public-key-hex"
+    },
+    "subject": {
+      "id": "agent-uuid-123",
+      "type": "custom"
+    },
+    "scope": ["payments:send", "data:read:*"],
+    "constraints": {
+      "max_amount": {"value": 500, "currency": "USD"},
+      "time_window": {
+        "start": "2025-07-23T10:00:00Z",
+        "end": "2025-07-24T10:00:00Z"
+      }
+    },
+    "issued_at": "2025-07-23T10:00:00Z",
+    "expires_at": "2025-07-24T10:00:00Z",
+    "not_before": "2025-07-23T10:00:00Z"
+  },
+  "signature": "ed25519-signature-hex"
+}
 ```
 
-## Implementation Status
+## Standard Constraints
 
-### Core Protocol
-- [x] Complete identity specification v1.0 draft
-- [x] Identity adapter architecture for any underlying system
-- [ ] Reference Python implementation
-- [ ] JavaScript SDK
-- [ ] Security audit
+AAIP v1.0 defines standard constraint types that all implementations must support:
 
-### Identity System Adapters
-- [ ] Agntcy adapter
-- [ ] DID adapter
-- [ ] OAuth 2.0 adapter
-- [ ] Custom identity adapter
-- [ ] API key adapter
+### Financial Constraints
+```json
+{
+  "max_amount": {
+    "value": 1000.0,
+    "currency": "USD"
+  }
+}
+```
 
-### Framework Integrations
-- [ ] LangChain integration
-- [ ] CrewAI integration
-- [ ] LlamaIndex support  
-- [ ] OpenAI Assistants bridge
-- [ ] Autogen integration
+### Time Windows
+```json
+{
+  "time_window": {
+    "start": "2025-07-23T09:00:00Z",
+    "end": "2025-07-23T17:00:00Z"
+  }
+}
+```
 
-### Service Adoptions
-- [ ] Demo booking service
-- [ ] Demo payment processor
-- [ ] Demo SaaS integrations
-- [ ] Enterprise pilot programs
+### Domain Controls
+```json
+{
+  "allowed_domains": ["company.com", "*.partner.com"],
+  "blocked_domains": ["competitor.com", "*.malicious.com"]
+}
+```
 
-## Getting Started
+### Content Filtering
+```json
+{
+  "blocked_keywords": ["urgent", "limited time", "act now"]
+}
+```
 
-### 1. Install AAIP
+## Security Features
+
+- **Ed25519 Signatures**: Industry-standard cryptographic security
+- **Self-Contained**: No external key lookups required
+- **Time-Bounded**: Automatic expiration prevents replay attacks
+- **Minimal Privilege**: Scoped permissions with explicit constraints
+- **Canonical Serialization**: Prevents signature malleability
+
+## Installation
+
 ```bash
 pip install aaip
 ```
 
-### 2. Choose Your Identity Adapter
+## Examples
+
+### FastAPI Integration
+Create REST APIs with AAIP authorization:
+
 ```python
-# For Agntcy users
-from aaip.adapters import AgntcyAdapter
-adapter = AgntcyAdapter()
+from fastapi import FastAPI, Depends
+from aaip import verify_delegation, check_delegation_authorization
 
-# For DID users  
-from aaip.adapters import DIDAdapter
-adapter = DIDAdapter()
+app = FastAPI()
 
-# For custom identity systems
-from aaip.adapters import CustomAdapter
-adapter = CustomAdapter(your_identity_resolver)
+def require_scope(required_scope: str):
+    def dependency(delegation = Depends(get_delegation_from_header)):
+        if not check_delegation_authorization(delegation, *required_scope.split(":")):
+            raise HTTPException(403, f"Insufficient scope: requires {required_scope}")
+        return delegation
+    return dependency
+
+@app.post("/payment")
+async def process_payment(
+    payment_data: PaymentRequest,
+    delegation = Depends(require_scope("payments:authorize"))
+):
+    # Payment processing with delegation authorization
+    return {"status": "success"}
 ```
 
-### 3. Add Authorization to Your Agent
-```python
-from aaip import add_authorization_layer
+### LangChain Integration
+Add AAIP authorization to LangChain agents:
 
-authorized_agent = add_authorization_layer(your_agent, adapter)
+```python
+from langchain.agents import create_openai_functions_agent
+from aaip import verify_delegation, check_delegation_authorization
+
+class AAIPLangChainAgent:
+    def __init__(self, agent_identity):
+        self.agent_identity = agent_identity
+        self.current_delegation = None
+        # ... setup LangChain agent
+    
+    def set_delegation(self, delegation):
+        if verify_delegation(delegation):
+            self.current_delegation = delegation
+            return True
+        return False
+    
+    def execute_task(self, task):
+        if not self.current_delegation:
+            raise AuthorizationError("No delegation available")
+        # ... execute with authorization checks
 ```
 
-### 4. Create User Delegations
+## Use Cases
+
+### Personal Assistants
+- **Calendar Management**: Schedule meetings with time constraints
+- **Email Communication**: Send emails with domain restrictions  
+- **Shopping**: Purchase items with spending limits
+- **Travel Booking**: Book flights/hotels within budget constraints
+
+### Enterprise Applications
+- **Workflow Automation**: Agents accessing APIs with role-based permissions
+- **Customer Service**: Agents handling requests with compliance boundaries
+- **Data Processing**: Agents analyzing data with privacy controls
+- **DevOps**: Infrastructure management with safety limits
+
+## Verification Process
+
+Services verify delegations in these steps:
+
+1. **Format Validation**: Check all required fields exist
+2. **Version Check**: Ensure `aaip_version` is supported  
+3. **Time Validation**: Check expiration and validity times
+4. **Signature Verification**: Verify Ed25519 signature using embedded public key
+5. **Scope Check**: Validate requested action against delegation scope
+6. **Constraint Enforcement**: Apply all standard constraints
+
+## Error Handling
+
+AAIP defines standard error codes:
+
+- `INVALID_DELEGATION`: Malformed delegation format
+- `SIGNATURE_INVALID`: Cryptographic signature verification failed
+- `DELEGATION_EXPIRED`: Delegation past expiration time
+- `SCOPE_INSUFFICIENT`: Required permission not granted
+- `CONSTRAINT_VIOLATED`: Request violates delegation constraints
+
+## Implementation Status
+
+### Core Protocol
+- [x] AAIP v1.0 specification complete
+- [x] Python reference implementation
+- [x] Ed25519 cryptographic security
+- [x] Standard constraint validation
+- [x] Comprehensive test suite
+
+### Examples
+- [x] FastAPI integration example
+- [x] LangChain integration example
+- [x] Complete documentation
+
+### Language Support
+- [x] Python SDK
+- [ ] JavaScript SDK
+- [ ] Go SDK  
+- [ ] Rust SDK
+
+## Getting Started
+
+### 1. Installation
+```bash
+pip install aaip
+```
+
+### 2. Basic Usage
 ```python
-delegation = create_delegation(
-    identity=authorized_agent.identity,
-    scope=["specific:permissions"],
-    constraints={"your": "limits"},
-    expires_in="1_hour"
+from aaip import create_signed_delegation, verify_delegation, generate_keypair
+
+# Generate keys
+private_key, public_key = generate_keypair()
+
+# Create delegation
+delegation = create_signed_delegation(
+    issuer_identity="user@example.com",
+    issuer_identity_system="oauth",
+    issuer_private_key=private_key,
+    subject_identity="my-agent",
+    subject_identity_system="custom", 
+    scope=["api:read"],
+    expires_at="2025-08-26T10:00:00Z",
+    not_before="2025-07-26T10:00:00Z"
 )
+
+# Verify delegation
+if verify_delegation(delegation):
+    print("Delegation is valid!")
 ```
 
-### 5. Execute with Proof
-```python
-result = authorized_agent.execute(task, delegation)
+### 3. Run Examples
+```bash
+# FastAPI example
+cd examples/fastapi/basic
+python main.py
+
+# LangChain example  
+cd examples/langchain/basic
+python main.py
 ```
+
+## Documentation
+
+- [AAIP v1.0 Specification](spec/core/aaip-v1.0.md) - Complete protocol specification
+- [Python API Reference](src/aaip/) - Implementation documentation
+- [Examples](examples/) - Integration examples and tutorials
 
 ## Contributing
 
-AAIP is designed for maximum ecosystem compatibility and welcomes contributions:
+We welcome contributions to AAIP:
 
-### For Framework Maintainers
-- **Add native AAIP support** to your agent framework
-- **Contribute adapters** for identity systems you support
-- **Join the technical steering committee** for integration decisions
-
-### For Identity System Providers
-- **Build AAIP adapters** for your identity standard
-- **Provide integration examples** and documentation
-- **Help design identity-specific optimizations**
-
-### For Service Providers
-- **Add AAIP authorization support** to your APIs
-- **Implement delegation verification** in your services
-- **Contribute real-world use case examples**
-
-### For Developers
-- **Try AAIP** with your existing agents
-- **Report compatibility issues** with different frameworks
-- **Contribute to SDKs** in your preferred language
-- **Build demo applications** showing AAIP capabilities
-
-## Roadmap
-
-### Q3 2025: Foundation
-- ✅ Identity-agnostic specification
-- 🔄 Core Python implementation
-- 🔄 Key identity adapters (Agntcy, DID, OAuth)
-- 📅 Framework integrations (LangChain, CrewAI)
-
-### Q4 2025: Ecosystem
-- 📅 JavaScript SDK
-- 📅 Additional framework support
-- 📅 Service provider integrations
-- 📅 Developer tools and documentation
-
-### Q1 2026: Enterprise
-- 📅 Enterprise identity system support (SAML, AD)
-- 📅 Compliance certifications (SOC2, GDPR)
-- 📅 Production deployments
-- 📅 Performance optimizations
-
-### Q2 2026: Standardization
-- 📅 Standards body engagement
-- 📅 Industry adoption metrics
-- 📅 Cross-platform compatibility testing
-- 📅 Next-generation features
-
-## Community & Support
-
-### Development
-- **GitHub**: [aaip-protocol/aaip-spec](https://github.com/aaip-protocol/aaip-spec)
-
-### Documentation
-- 📖 [Full Specification](spec/core/aaip-v1.0.md)
+- **Bug Reports**: File issues for bugs or improvements
+- **Feature Requests**: Suggest enhancements to the protocol
+- **Implementation**: Contribute SDKs in other languages
+- **Examples**: Add integration examples for new frameworks
+- **Testing**: Help improve test coverage and edge cases
 
 ## License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
 
-The AAIP specification itself is released under CC0 (public domain) to ensure maximum adoptability across the ecosystem.
+The AAIP specification is released under CC0 (public domain) to ensure maximum adoptability.
 
-## Acknowledgments
+## Support
 
-- **Agent Framework Maintainers**: LangChain, CrewAI, LlamaIndex and others building the agent ecosystem
-- **Identity System Pioneers**: Agntcy, DID Foundation, and OAuth Working Group for showing different approaches to agent identity
-- **Security Researchers**: For guidance on cryptographic best practices
-- **Early Adopters**: Organizations willing to pilot universal agent authorization
+- **GitHub Issues**: [Report bugs and request features](https://github.com/krisdiallo/aaip-spec/issues)
+- **Documentation**: Complete guides in the [spec/](spec/) directory
+- **Examples**: Working code samples in the [examples/](examples/) directory
 
 ---
 
-*AAIP: Complete identity infrastructure for AI agents - one protocol, every identity system, all frameworks.* 🚀
-
-**Building the complete identity foundation for the agentic future.**
+**AAIP v1.0**: Standard delegation format for AI agent authorization
