@@ -91,17 +91,18 @@ Immutable record of delegation creation, usage, and revocation for accountabilit
   "delegation": {
     "id": "del_01H8QK9J2M3N4P5Q6R7S8T9V0W",
     "issuer": {
-      "identity": "user-identity-in-any-format",
-      "identity_system": "agntcy|did|oauth|custom",
+      "id": "user@example.com",
+      "type": "oauth",
       "public_key": "ed25519-public-key-hex"
     },
     "subject": {
-      "identity": "agent-identity-in-any-format", 
-      "identity_system": "agntcy|did|oauth|custom"
+      "id": "agent-uuid-123",
+      "type": "custom"
     },
     "scope": [
-      "payments:authorize",
-      "calendar:read"
+      "payments:send",
+      "data:read:*",
+      "email:send"
     ],
     "constraints": {
       "max_amount": {"value": 500, "currency": "USD"},
@@ -109,7 +110,8 @@ Immutable record of delegation creation, usage, and revocation for accountabilit
         "start": "2025-07-23T10:00:00Z",
         "end": "2025-07-24T10:00:00Z"
       },
-      "rate_limit": {"requests": 100, "period": "1h"}
+      "allowed_domains": ["company.com", "*.partner.com"],
+      "blocked_keywords": ["urgent", "limited time"]
     },
     "issued_at": "2025-07-23T10:00:00Z",
     "expires_at": "2025-07-24T10:00:00Z",
@@ -127,14 +129,17 @@ Immutable record of delegation creation, usage, and revocation for accountabilit
 #### 3.2.2 Delegation Fields
 - `id`: Unique delegation identifier (prefixed with `del_`)
 - `issuer`: User granting the delegation
-  - `identity`: User's identity in their chosen system format
-  - `identity_system`: Type of identity system used
+  - `id`: User's identity string (format depends on identity type)
+  - `type`: Identity system type (`oauth`, `did`, `custom`, etc.)
   - `public_key`: Ed25519 public key for signature verification
 - `subject`: Agent receiving the delegation
-  - `identity`: Agent's identity in their identity system format
-  - `identity_system`: Type of identity system the agent uses
-- `scope`: Array of hierarchical permission identifiers
-- `constraints`: Optional additional limitations
+  - `id`: Agent's identity string (format depends on identity type)
+  - `type`: Identity system type (`oauth`, `did`, `custom`, etc.)
+- `scope`: Array of permission identifiers with wildcard support
+  - Exact match: `"payments:send"` grants exactly that permission
+  - Wildcard match: `"data:read:*"` grants all permissions starting with `data:read:`
+  - Full wildcard: `"payments:*"` grants all payment-related permissions
+- `constraints`: Optional additional limitations (see Section 4)
 - `issued_at`: When delegation was created (ISO 8601)
 - `expires_at`: When delegation expires (ISO 8601)
 - `not_before`: When delegation becomes valid (ISO 8601)
@@ -153,116 +158,131 @@ For signature verification, delegations MUST be serialized using deterministic J
 
 Example canonical form:
 ```json
-{"aaip_version":"1.0","delegation":{"constraints":{"max_amount":{"currency":"USD","value":500}},"expires_at":"2025-07-24T10:00:00Z","id":"del_01H8QK9J2M3N4P5Q6R7S8T9V0W","issued_at":"2025-07-23T10:00:00Z","issuer":{"identity":"user123","identity_system":"custom","public_key":"abc123"},"not_before":"2025-07-23T10:00:00Z","scope":["payments:authorize"],"subject":{"identity":"agent456","identity_system":"custom"}}}
+{"aaip_version":"1.0","delegation":{"constraints":{"max_amount":{"currency":"USD","value":500}},"expires_at":"2025-07-24T10:00:00Z","id":"del_01H8QK9J2M3N4P5Q6R7S8T9V0W","issued_at":"2025-07-23T10:00:00Z","issuer":{"id":"user@example.com","public_key":"ed25519-public-key-hex","type":"oauth"},"not_before":"2025-07-23T10:00:00Z","scope":["payments:send","data:read:*"],"subject":{"id":"agent-uuid-123","type":"custom"}}}
 ```
 
 ## 4. Scope System
 
-### 4.1 Hierarchical Structure
+### 4.1 Scope Format
 
-Scopes use dot notation for hierarchical permissions:
+Scopes use colon notation for hierarchical permissions:
 
 ```
-service.action.resource
-├── payments
-│   ├── payments:authorize (can authorize payments)
-│   ├── payments.read (can view payment history)
-│   └── payments.refund (can process refunds)
-├── calendar
-│   ├── calendar.read (can view calendar events)
-│   ├── calendar:write (can create/modify events)
-│   └── calendar.share (can share calendar access)
-└── data
-    ├── data.read.personal (can read personal data)
-    ├── data.read.public (can read public data)
-    └── data.export (can export data)
+service:action:resource
+├── payments:send
+├── payments:refund  
+├── payments:cancel
+├── data:read:profile
+├── data:read:email
+├── data:write:profile
+├── email:send
+└── calendar:read
 ```
 
-### 4.2 Scope Inheritance
+### 4.2 Wildcard Support
 
-More specific scopes inherit permissions from broader scopes:
-- `payments` grants all payment-related permissions
-- `payments:authorize` grants only authorization permission
-- Scopes MUST be validated from most specific to least specific
+Scopes support wildcard matching using `*`:
 
-### 4.3 Reserved Scopes
+```json
+{
+  "scope": [
+    "payments:send",        // Exact permission
+    "data:read:*",         // All data read permissions
+    "email:*",             // All email permissions
+    "*"                    // All permissions (use with caution)
+  ]
+}
+```
 
-- `*`: Grants all permissions (use with extreme caution)
-- `aaip.manage`: Can create/revoke delegations for this user
-- `aaip.audit`: Can access delegation audit logs
+**Wildcard Rules:**
+- `*` at the end matches anything following the prefix
+- `data:read:*` matches `data:read:profile`, `data:read:email`, etc.
+- `payments:*` matches `payments:send`, `payments:refund`, etc.
+- `*` alone matches all possible scopes
 
-### 4.4 Custom Scopes
+### 4.3 Scope Validation
 
-Services can define custom scope hierarchies. Best practices:
-- Use reverse domain notation: `com.example.service.action`
-- Document all available scopes
-- Follow principle of least privilege
-- Group related permissions logically
+When validating a requested action against delegation scope:
+1. Check for exact match first
+2. Check for wildcard matches
+3. Grant access if any match is found
 
 ## 5. Constraint System
 
 ### 5.1 Standard Constraints
 
+All AAIP implementations MUST support these standard constraint types:
+
 #### 5.1.1 Financial Constraints
 ```json
 {
-  "max_amount": {"value": 1000, "currency": "USD"},
-  "daily_limit": {"value": 500, "currency": "USD"},
-  "merchant_whitelist": ["amazon.com", "stripe.com"]
+  "max_amount": {
+    "value": 1000.00,
+    "currency": "USD"
+  }
 }
 ```
 
-#### 5.1.2 Time Constraints
+Limits individual transaction amounts. Currency codes MUST follow ISO 4217.
+
+#### 5.1.2 Time Window Constraints
 ```json
 {
   "time_window": {
     "start": "2025-07-23T09:00:00Z",
     "end": "2025-07-23T17:00:00Z"
-  },
-  "business_hours_only": true,
-  "timezone": "America/New_York"
-}
-```
-
-#### 5.1.3 Rate Limiting
-```json
-{
-  "rate_limit": {"requests": 100, "period": "1h"},
-  "burst_limit": {"requests": 10, "period": "1m"}
-}
-```
-
-#### 5.1.4 Data Constraints
-```json
-{
-  "data_filters": {
-    "exclude_pii": true,
-    "max_records": 1000,
-    "allowed_fields": ["name", "email", "public_data"]
   }
 }
 ```
 
-### 5.2 Custom Constraints
+Restricts when delegations can be used. Times MUST be in ISO 8601 format.
 
-Services can define custom constraints following the pattern:
+#### 5.1.3 Domain Constraints
 ```json
 {
-  "custom_constraint_name": {
-    "type": "constraint_type",
-    "value": "constraint_value",
-    "metadata": {}
-  }
+  "allowed_domains": ["company.com", "*.partner.com", "api.*"],
+  "blocked_domains": ["competitor.com", "*.malicious.com"]
 }
 ```
+
+Controls which domains agents can interact with. Supports wildcard patterns:
+- `*.example.com` - matches all subdomains of example.com
+- `example.*` - matches example.com, example.org, etc.
+
+#### 5.1.4 Content Constraints
+```json
+{
+  "blocked_keywords": ["urgent", "limited time", "act now"]
+}
+```
+
+Prevents agents from using specified keywords in content (case-insensitive matching).
+
+### 5.2 Extended Constraints
+
+Services may implement additional constraints:
+
+```json
+{
+  "payment_methods": ["card", "bank_transfer"],
+  "shipping_regions": ["US", "CA", "GB"],
+  "data_classification": ["public", "internal"],
+  "acme.com:approval_required": {"manager": "john@acme.com"}
+}
+```
+
+**Constraint Types:**
+- **Standard constraints** (Section 4.1): All implementations MUST support
+- **Extended constraints** (no namespace): Industry-specific, implementations MAY support  
+- **Proprietary constraints** (with namespace): Organization-specific
 
 ### 5.3 Constraint Validation
 
-Services MUST:
-1. Validate all constraints before executing agent requests
-2. Reject requests that violate any constraint
-3. Log constraint violations for audit purposes
-4. Return specific error messages for constraint failures
+Services MUST validate constraints before executing agent requests:
+1. Standard constraints MUST be enforced
+2. Extended/proprietary constraints MAY be enforced
+3. Unknown constraints are ignored
+4. Constraint violations MUST reject the request
 
 ## 6. Identity Adapter Interface
 
@@ -495,6 +515,8 @@ sequenceDiagram
 2. **Follow principle of least privilege** in scope requests
 3. **Implement proper error handling**
 4. **Respect user privacy** in delegation design
+5. **Always specify explicit timestamps** for delegation time bounds
+6. **Validate ISO 8601 timestamp formats** before creating delegations
 
 ## 11. Compliance and Privacy
 
@@ -584,18 +606,18 @@ Custom fields can be added to delegations using vendor prefixes:
   "delegation": {
     "id": "del_payment_example_001",
     "issuer": {
-      "identity": "did:example:user123",
-      "identity_system": "did",
+      "id": "did:example:user123",
+      "type": "did",
       "public_key": "b0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1"
     },
     "subject": {
-      "identity": "agent_assistant_v2",
-      "identity_system": "custom"
+      "id": "agent_assistant_v2",
+      "type": "custom"
     },
     "scope": ["payments:authorize"],
     "constraints": {
       "max_amount": {"value": 100, "currency": "USD"},
-      "merchant_whitelist": ["amazon.com", "uber.com"]
+      "allowed_domains": ["amazon.com", "uber.com"]
     },
     "issued_at": "2025-07-23T10:00:00Z",
     "expires_at": "2025-07-23T18:00:00Z",
@@ -613,13 +635,13 @@ Custom fields can be added to delegations using vendor prefixes:
   "delegation": {
     "id": "del_travel_agent_001",
     "issuer": {
-      "identity": "alice@example.com",
-      "identity_system": "oauth",
+      "id": "alice@example.com",
+      "type": "oauth",
       "public_key": "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8e9f0a1b2"
     },
     "subject": {
-      "identity": "did:agntcy:travel_assistant_001",
-      "identity_system": "agntcy"
+      "id": "did:agntcy:travel_assistant_001",
+      "type": "agntcy"
     },
     "scope": [
       "flights:search",
@@ -631,13 +653,14 @@ Custom fields can be added to delegations using vendor prefixes:
     ],
     "constraints": {
       "max_amount": {"value": 3000, "currency": "USD"},
-      "travel_dates": {
-        "start": "2025-08-15",
-        "end": "2025-08-25"
+      "time_window": {
+        "start": "2025-08-15T00:00:00Z",
+        "end": "2025-08-25T23:59:59Z"
       },
-      "destinations": ["NYC", "LAX", "CHI"],
-      "hotel_rating_min": 3,
-      "flight_class": ["economy", "premium_economy"]
+      "allowed_domains": ["booking.com", "expedia.com", "*.hotels.com"],
+      "travel:destinations": ["NYC", "LAX", "CHI"],
+      "travel:hotel_rating_min": 3,
+      "travel:flight_class": ["economy", "premium_economy"]
     },
     "issued_at": "2025-07-23T14:30:00Z",
     "expires_at": "2025-07-30T23:59:59Z",
@@ -657,31 +680,35 @@ def create_delegation(
     issuer_private_key: str,
     agent_identity: str,
     scope: List[str],
-    constraints: Dict[str, Any],
-    expires_in: str = "24h"
+    expires_at: str,
+    not_before: str,
+    constraints: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     
+    # Validate timestamp formats
+    validate_iso8601_timestamp(expires_at)
+    validate_iso8601_timestamp(not_before)
+    
     now = datetime.utcnow()
-    expiry = now + parse_duration(expires_in)
     
     delegation = {
         "aaip_version": "1.0",
         "delegation": {
             "id": generate_delegation_id(),
             "issuer": {
-                "identity": issuer_identity,
-                "identity_system": detect_identity_system(issuer_identity),
+                "id": issuer_identity,
+                "type": detect_identity_system(issuer_identity),
                 "public_key": derive_public_key(issuer_private_key)
             },
             "subject": {
-                "identity": agent_identity,
-                "identity_system": detect_identity_system(agent_identity)
+                "id": agent_identity,
+                "type": detect_identity_system(agent_identity)
             },
             "scope": scope,
-            "constraints": constraints,
+            "constraints": constraints or {},
             "issued_at": now.isoformat() + "Z",
-            "expires_at": expiry.isoformat() + "Z",
-            "not_before": now.isoformat() + "Z"
+            "expires_at": expires_at,
+            "not_before": not_before
         }
     }
     
@@ -717,7 +744,7 @@ def verify_delegation(
         return False
     
     # Verify agent identity
-    agent_identity = delegation["delegation"]["subject"]["identity"]
+    agent_identity = delegation["delegation"]["subject"]["id"]
     if not identity_adapter.verify_identity(agent_identity, {}):
         return False
     
