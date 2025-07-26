@@ -5,46 +5,40 @@ Simple identity representation as defined in AAIP v1.0 specification.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 @dataclass
 class Identity:
     """Represents an identity in any identity system (user, agent, or service)."""
+
     id: str
     type: str
     public_key: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
-        result = {
-            "id": self.id,
-            "type": self.type
-        }
-        
+        result = {"id": self.id, "type": self.type}
+
         if self.public_key:
             result["public_key"] = self.public_key
-        
+
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Identity':
+    def from_dict(cls, data: dict[str, Any]) -> "Identity":
         """Create from dictionary representation."""
-        return cls(
-            id=data["id"],
-            type=data["type"],
-            public_key=data.get("public_key")
-        )
+        return cls(id=data["id"], type=data["type"], public_key=data.get("public_key"))
 
 
 def validate_identity_format(identity: str, identity_type: str) -> bool:
     """
     Validate identity string format for given type.
-    
+
     Args:
         identity: Identity string to validate
         identity_type: Type of identity system
-        
+
     Returns:
         True if identity format is valid
     """

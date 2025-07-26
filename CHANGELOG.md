@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Identity Systems**: Support for OAuth, DID, and custom identity types
 - **Constraints**: Max amount, time windows, domain allowlists/blocklists, keyword filtering
 - **Error Handling**: Standard error codes aligned with RFC 7807 problem details
-- **Python Support**: Python 3.8+ compatibility
+- **Python Support**: Python 3.9+ compatibility
 
 ### Architecture
 - **Protocol-First Design**: Minimal core implementation

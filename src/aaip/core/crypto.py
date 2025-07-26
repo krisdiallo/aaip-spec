@@ -6,7 +6,7 @@ Implements Ed25519 signatures per RFC 8037 standards.
 """
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -25,7 +25,7 @@ class AAIPCrypto:
     def generate_keypair() -> tuple[str, str]:
         """
         Generate an Ed25519 keypair for AAIP delegation signing.
-        
+
         Returns:
             Tuple of (private_key_hex, public_key_hex)
         """
@@ -37,28 +37,27 @@ class AAIPCrypto:
         private_key_hex = private_key.private_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PrivateFormat.Raw,
-            encryption_algorithm=serialization.NoEncryption()
+            encryption_algorithm=serialization.NoEncryption(),
         ).hex()
 
         public_key_hex = public_key.public_bytes(
-            encoding=serialization.Encoding.Raw,
-            format=serialization.PublicFormat.Raw
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
         ).hex()
 
         return private_key_hex, public_key_hex
 
     @staticmethod
-    def sign_delegation(delegation_dict: Dict[str, Any], private_key_hex: str) -> str:
+    def sign_delegation(delegation_dict: dict[str, Any], private_key_hex: str) -> str:
         """
         Sign a delegation using Ed25519.
-        
+
         Args:
             delegation_dict: Delegation dictionary (without signature field)
             private_key_hex: Private key in hex format
-            
+
         Returns:
             Signature in hex format
-            
+
         Raises:
             SignatureError: If signing fails
         """
@@ -71,30 +70,27 @@ class AAIPCrypto:
             canonical_json = AAIPCrypto.serialize_canonical(delegation_dict)
 
             # Sign the canonical JSON
-            signature = private_key.sign(canonical_json.encode('utf-8'))
+            signature = private_key.sign(canonical_json.encode("utf-8"))
 
             return signature.hex()
 
         except (ValueError, TypeError) as e:
             raise SignatureError(
-                AAIPErrorCode.SIGNATURE_INVALID,
-                f"Failed to sign delegation: {e}"
-            )
+                AAIPErrorCode.SIGNATURE_INVALID, f"Failed to sign delegation: {e}"
+            ) from e
 
     @staticmethod
     def verify_delegation_signature(
-        delegation_dict: Dict[str, Any],
-        signature_hex: str,
-        public_key_hex: str
+        delegation_dict: dict[str, Any], signature_hex: str, public_key_hex: str
     ) -> bool:
         """
         Verify a delegation signature using Ed25519.
-        
+
         Args:
             delegation_dict: Delegation dictionary (without signature field)
             signature_hex: Signature in hex format
             public_key_hex: Public key in hex format
-            
+
         Returns:
             True if signature is valid, False otherwise
         """
@@ -116,7 +112,7 @@ class AAIPCrypto:
             canonical_json = AAIPCrypto.serialize_canonical(delegation_dict)
 
             # Verify signature
-            public_key.verify(signature_bytes, canonical_json.encode('utf-8'))
+            public_key.verify(signature_bytes, canonical_json.encode("utf-8"))
             return True
         except InvalidSignature:
             return False
@@ -124,47 +120,50 @@ class AAIPCrypto:
             return False
 
     @staticmethod
-    def serialize_canonical(data: Dict[str, Any]) -> str:
+    def serialize_canonical(data: dict[str, Any]) -> str:
         """
         Serialize data to canonical JSON format per AAIP specification.
-        
+
         Args:
             data: Dictionary to serialize
-            
+
         Returns:
             Canonical JSON string
         """
-        return json.dumps(data, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+        return json.dumps(
+            data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
 
     @staticmethod
     def create_signed_delegation(
-        delegation_payload: Dict[str, Any],
+        delegation_payload: dict[str, Any],
         private_key_hex: str,
-        aaip_version: Optional[str] = None
-    ) -> Dict[str, Any]:
+        aaip_version: Optional[str] = None,
+    ) -> dict[str, Any]:
         """
         Create a signed delegation.
-        
+
         Args:
             delegation_payload: The delegation payload to sign
             private_key_hex: Private key for signing
             aaip_version: AAIP protocol version
-            
+
         Returns:
             Signed delegation with signature
-            
+
         Raises:
             SignatureError: If signing fails
         """
         # Use default AAIP version if not provided
         if aaip_version is None:
             from .. import AAIP_VERSION
+
             aaip_version = AAIP_VERSION
-            
+
         # Create the delegation structure
         delegation_dict = {
             "aaip_version": aaip_version,
-            "delegation": delegation_payload
+            "delegation": delegation_payload,
         }
 
         # Sign the delegation
@@ -175,18 +174,17 @@ class AAIPCrypto:
 
         return delegation_dict
 
-
     @staticmethod
     def extract_public_key_from_private(private_key_hex: str) -> str:
         """
         Extract public key from private key.
-        
+
         Args:
             private_key_hex: Private key in hex format
-            
+
         Returns:
             Public key in hex format
-            
+
         Raises:
             SignatureError: If key extraction fails
         """
@@ -197,14 +195,13 @@ class AAIPCrypto:
 
             return public_key.public_bytes(
                 encoding=serialization.Encoding.Raw,
-                format=serialization.PublicFormat.Raw
+                format=serialization.PublicFormat.Raw,
             ).hex()
 
         except (ValueError, TypeError) as e:
             raise SignatureError(
-                AAIPErrorCode.SIGNATURE_INVALID,
-                f"Failed to extract public key: {e}"
-            )
+                AAIPErrorCode.SIGNATURE_INVALID, f"Failed to extract public key: {e}"
+            ) from e
 
 
 # Convenience functions for public API
@@ -213,6 +210,6 @@ def generate_keypair() -> tuple[str, str]:
     return AAIPCrypto.generate_keypair()
 
 
-def serialize_canonical(data: Dict[str, Any]) -> str:
+def serialize_canonical(data: dict[str, Any]) -> str:
     """Serialize to canonical JSON - convenience function."""
     return AAIPCrypto.serialize_canonical(data)
