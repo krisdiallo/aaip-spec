@@ -1,115 +1,95 @@
 """
-Test utilities for AAIP tests.
-
-This module provides helper functions for creating test data and common test operations.
+Test utilities for AAIP v2.0 tests.
 """
 
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-# Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from aaip.core.authorization import Delegation, DelegationPayload
-from aaip.core.identity import Identity
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
+
+from aaip.core.authorization import Delegation, create_signed_delegation
+from aaip.core.crypto import generate_keypair
+from aaip.core.jwks import StaticKeyResolver
 
 
-def create_test_delegation_payload(
+def create_test_keypair() -> tuple[Ed25519PrivateKey, Ed25519PublicKey, str]:
+    """Generate a test keypair with kid."""
+    return generate_keypair()
+
+
+def create_test_key_resolver(
+    *key_pairs: tuple[Ed25519PublicKey, str],
+) -> StaticKeyResolver:
+    """Create a StaticKeyResolver from (public_key, kid) pairs."""
+    keys = {kid: pub for pub, kid in key_pairs}
+    return StaticKeyResolver(keys)
+
+
+def create_test_delegation_token(
     issuer_identity: str = "test_user@example.com",
     issuer_identity_system: str = "oauth",
     subject_identity: str = "test_agent",
     subject_identity_system: str = "custom",
-    scope: list[str] = None,
+    scope: Optional[list[str]] = None,
     constraints: Optional[dict[str, Any]] = None,
-    expires_at: str = "2025-08-26T10:00:00Z",
-    not_before: str = "2025-07-26T10:00:00Z",
-    issuer_public_key: Optional[str] = None,
-) -> DelegationPayload:
+    expires_at: Optional[str] = None,
+    not_before: Optional[str] = None,
+    private_key: Optional[Ed25519PrivateKey] = None,
+    kid: Optional[str] = None,
+    proofs: Optional[list[str]] = None,
+) -> tuple[str, Ed25519PublicKey, str]:
     """
-    Create a delegation payload for testing purposes using public APIs only.
+    Create a test JWT delegation token.
 
-    Args:
-        issuer_identity: Identity of the user granting permission
-        issuer_identity_system: Type of issuer's identity system
-        subject_identity: Identity of the agent receiving permission
-        subject_identity_system: Type of agent's identity system
-        scope: List of permissions being granted
-        constraints: Optional constraints on the delegation
-        expires_at: ISO 8601 expiration timestamp
-        not_before: ISO 8601 timestamp when delegation becomes valid
-        issuer_public_key: Optional public key for the issuer
-
-    Returns:
-        Delegation payload for testing
+    Returns (token, public_key, kid).
     """
     if scope is None:
         scope = ["test:action"]
 
-    # Validate inputs like the internal function does
-    if not scope:
-        raise ValueError("Invalid delegation: must include at least one scope")
+    if expires_at is None:
+        expires_at = (
+            datetime.now(timezone.utc) + timedelta(days=365)
+        ).isoformat().replace("+00:00", "Z")
 
-    if not issuer_identity or not issuer_identity.strip():
-        raise ValueError("Invalid delegation: issuer identity cannot be empty")
+    if not_before is None:
+        not_before = (
+            datetime.now(timezone.utc) - timedelta(hours=1)
+        ).isoformat().replace("+00:00", "Z")
 
-    if not subject_identity or not subject_identity.strip():
-        raise ValueError("Invalid delegation: subject identity cannot be empty")
+    if private_key is None or kid is None:
+        private_key, pub, kid = generate_keypair()
+    else:
+        pub = private_key.public_key()
 
-    import secrets
-    from datetime import datetime, timezone
-
-    # Create delegation payload using public API pattern
-    issuer = Identity(
-        id=issuer_identity, type=issuer_identity_system, public_key=issuer_public_key
-    )
-
-    subject = Identity(id=subject_identity, type=subject_identity_system)
-
-    return DelegationPayload(
-        id=f"del_{secrets.token_urlsafe(20)}",
-        issuer=issuer,
-        subject=subject,
+    token = create_signed_delegation(
+        issuer_identity=issuer_identity,
+        issuer_identity_system=issuer_identity_system,
+        private_key=private_key,
+        kid=kid,
+        subject_identity=subject_identity,
+        subject_identity_system=subject_identity_system,
         scope=scope,
-        constraints=constraints or {},
-        issued_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         expires_at=expires_at,
         not_before=not_before,
+        constraints=constraints,
+        proofs=proofs,
     )
 
+    return token, pub, kid
 
-def create_test_delegation_with_signature(
-    delegation_payload: DelegationPayload, signature: str = "test_signature_hex"
+
+def create_test_delegation(
+    **kwargs: Any,
 ) -> Delegation:
-    """
-    Create a complete delegation with a test signature for testing purposes.
+    """Create a decoded test Delegation object."""
+    from aaip.core.authorization import verify_delegation
 
-    Args:
-        delegation_payload: The delegation payload
-        signature: Test signature (default: "test_signature_hex")
-
-    Returns:
-        Complete delegation with test signature
-    """
-    return Delegation(
-        aaip_version="1.0", delegation=delegation_payload, signature=signature
-    )
-
-
-def create_test_identity(
-    identity_id: str = "test_identity",
-    identity_type: str = "custom",
-    public_key: Optional[str] = None,
-) -> Identity:
-    """
-    Create a test identity.
-
-    Args:
-        identity_id: Identity ID
-        identity_type: Type of identity system
-        public_key: Optional public key
-
-    Returns:
-        Test Identity object
-    """
-    return Identity(id=identity_id, type=identity_type, public_key=public_key)
+    token, pub, kid = create_test_delegation_token(**kwargs)
+    return verify_delegation(token, pub)

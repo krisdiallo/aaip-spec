@@ -1,11 +1,11 @@
 """
 AAIP Identity Types
 
-Simple identity representation as defined in AAIP v1.0 specification.
+Simple identity representation as defined in AAIP v2.0 specification.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -14,33 +14,20 @@ class Identity:
 
     id: str
     type: str
-    public_key: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        result = {"id": self.id, "type": self.type}
-
-        if self.public_key:
-            result["public_key"] = self.public_key
-
-        return result
+        return {"id": self.id, "type": self.type}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Identity":
-        """Create from dictionary representation."""
-        return cls(id=data["id"], type=data["type"], public_key=data.get("public_key"))
+        return cls(id=data["id"], type=data["type"])
 
 
 def validate_identity_format(identity: str, identity_type: str) -> bool:
     """
     Validate identity string format for given type.
 
-    Args:
-        identity: Identity string to validate
-        identity_type: Type of identity system
-
-    Returns:
-        True if identity format is valid
+    Returns True if identity format is valid.
     """
     if not identity or not isinstance(identity, str):
         return False
@@ -52,4 +39,4 @@ def validate_identity_format(identity: str, identity_type: str) -> bool:
     elif identity_type == "custom":
         return len(identity) > 0
     else:
-        return False  # Unknown types are rejected
+        return False
