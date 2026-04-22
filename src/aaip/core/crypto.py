@@ -55,9 +55,7 @@ class AAIPCrypto:
         return urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
     @staticmethod
-    def public_key_to_jwk(
-        public_key: Ed25519PublicKey, kid: str
-    ) -> dict[str, str]:
+    def public_key_to_jwk(public_key: Ed25519PublicKey, kid: str) -> dict[str, str]:
         """Convert Ed25519 public key to JWK format."""
         raw_bytes = public_key.public_bytes(
             encoding=serialization.Encoding.Raw,
@@ -74,9 +72,7 @@ class AAIPCrypto:
         }
 
     @staticmethod
-    def private_key_to_jwk(
-        private_key: Ed25519PrivateKey, kid: str
-    ) -> dict[str, str]:
+    def private_key_to_jwk(private_key: Ed25519PrivateKey, kid: str) -> dict[str, str]:
         """Convert Ed25519 private key to JWK format."""
         raw_private = private_key.private_bytes(
             encoding=serialization.Encoding.Raw,
@@ -138,12 +134,13 @@ class AAIPCrypto:
             Compact JWT string
         """
         try:
-            return pyjwt.encode(
+            token: str = pyjwt.encode(
                 payload,
                 private_key,
                 algorithm="EdDSA",
                 headers={"kid": kid, "typ": "JWT"},
             )
+            return token
         except Exception as e:
             raise SignatureError(
                 AAIPErrorCode.SIGNATURE_INVALID,
@@ -190,7 +187,8 @@ class AAIPCrypto:
             kwargs["audience"] = audience
 
         try:
-            return pyjwt.decode(**kwargs)
+            claims: dict[str, Any] = pyjwt.decode(**kwargs)
+            return claims
         except pyjwt.exceptions.ExpiredSignatureError as e:
             raise DelegationError(
                 AAIPErrorCode.DELEGATION_EXPIRED,
@@ -226,7 +224,8 @@ class AAIPCrypto:
     def get_unverified_header(token: str) -> dict[str, Any]:
         """Extract the JWT header without verification."""
         try:
-            return pyjwt.get_unverified_header(token)
+            header: dict[str, Any] = pyjwt.get_unverified_header(token)
+            return header
         except pyjwt.exceptions.DecodeError as e:
             raise DelegationError(
                 AAIPErrorCode.INVALID_TOKEN,
@@ -239,9 +238,7 @@ def generate_keypair() -> tuple[Ed25519PrivateKey, Ed25519PublicKey, str]:
     return AAIPCrypto.generate_keypair()
 
 
-def public_key_to_jwk(
-    public_key: Ed25519PublicKey, kid: str
-) -> dict[str, str]:
+def public_key_to_jwk(public_key: Ed25519PublicKey, kid: str) -> dict[str, str]:
     """Convert public key to JWK — convenience function."""
     return AAIPCrypto.public_key_to_jwk(public_key, kid)
 

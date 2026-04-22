@@ -132,7 +132,10 @@ def _validate_time_window(
                 raise ConstraintError(
                     AAIPErrorCode.CONSTRAINT_VIOLATED,
                     f"Request made before allowed start time {constraint['start']}",
-                    {"current_time": now.isoformat(), "start_time": constraint["start"]},
+                    {
+                        "current_time": now.isoformat(),
+                        "start_time": constraint["start"],
+                    },
                 )
         except ValueError as e:
             raise ConstraintError(

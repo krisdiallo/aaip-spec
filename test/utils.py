@@ -55,13 +55,17 @@ def create_test_delegation_token(
 
     if expires_at is None:
         expires_at = (
-            datetime.now(timezone.utc) + timedelta(days=365)
-        ).isoformat().replace("+00:00", "Z")
+            (datetime.now(timezone.utc) + timedelta(days=365))
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
 
     if not_before is None:
         not_before = (
-            datetime.now(timezone.utc) - timedelta(hours=1)
-        ).isoformat().replace("+00:00", "Z")
+            (datetime.now(timezone.utc) - timedelta(hours=1))
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
 
     if private_key is None or kid is None:
         private_key, pub, kid = generate_keypair()

@@ -26,7 +26,9 @@ class TestDelegationCreation:
             constraints={"max_amount": {"value": 500.0, "currency": "USD"}},
         )
 
-        assert check_delegation_authorization(delegation, "payments", "authorize") is True
+        assert (
+            check_delegation_authorization(delegation, "payments", "authorize") is True
+        )
         assert check_delegation_authorization(delegation, "email", "send") is False
 
     def test_wildcard_scope(self):

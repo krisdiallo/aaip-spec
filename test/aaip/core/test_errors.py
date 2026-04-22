@@ -53,16 +53,12 @@ class TestErrorTypes:
         assert isinstance(error, AAIPError)
 
     def test_key_resolution_error(self):
-        error = KeyResolutionError(
-            AAIPErrorCode.KEY_RESOLUTION_FAILED, "Key not found"
-        )
+        error = KeyResolutionError(AAIPErrorCode.KEY_RESOLUTION_FAILED, "Key not found")
         assert "Key not found" in str(error)
         assert isinstance(error, AAIPError)
 
     def test_chain_error(self):
-        error = ChainError(
-            AAIPErrorCode.CHAIN_VALIDATION_FAILED, "Chain too deep"
-        )
+        error = ChainError(AAIPErrorCode.CHAIN_VALIDATION_FAILED, "Chain too deep")
         assert "Chain too deep" in str(error)
         assert isinstance(error, AAIPError)
 

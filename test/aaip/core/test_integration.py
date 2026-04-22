@@ -2,7 +2,6 @@
 Integration tests for AAIP v2.0 core functionality.
 """
 
-
 import pytest
 
 from aaip.core import (
@@ -43,7 +42,9 @@ class TestEndToEndScenarios:
         assert delegation.constraints["max_amount"]["value"] == 1000
 
         assert check_delegation_authorization(delegation, "email", "send") is True
-        assert check_delegation_authorization(delegation, "payments", "authorize") is True
+        assert (
+            check_delegation_authorization(delegation, "payments", "authorize") is True
+        )
 
         valid_request = {"amount": 500, "currency": "USD"}
         assert validate_constraints(delegation.constraints, valid_request) is True
@@ -91,7 +92,11 @@ class TestEndToEndScenarios:
         assert constraints["max_amount"]["value"] == 2000
         assert "competitor.com" in constraints["blocked_domains"]
 
-        valid_request = {"amount": 500, "currency": "USD", "email": "prospect@goodcompany.com"}
+        valid_request = {
+            "amount": 500,
+            "currency": "USD",
+            "email": "prospect@goodcompany.com",
+        }
         assert validate_constraints(constraints, valid_request) is True
 
         invalid_request = {"amount": 500, "currency": "USD", "domain": "competitor.com"}
@@ -133,9 +138,12 @@ class TestEndToEndScenarios:
             not_before="2025-01-01T00:00:00Z",
         )
 
-        delegation = verify_delegation(token, resolver, allowed_issuers=["user@example.com"])
+        delegation = verify_delegation(
+            token, resolver, allowed_issuers=["user@example.com"]
+        )
         assert delegation.iss == "user@example.com"
 
         from aaip.core import DelegationError
+
         with pytest.raises(DelegationError):
             verify_delegation(token, resolver, allowed_issuers=["other@example.com"])

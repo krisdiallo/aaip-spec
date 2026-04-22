@@ -48,6 +48,7 @@ class TestResolveKeyFromToken:
         resolver = StaticKeyResolver({kid: pub})
 
         import time
+
         payload = {
             "iss": "test",
             "iat": int(time.time()),
@@ -67,6 +68,7 @@ class TestResolveKeyFromToken:
 
         # Encode without kid in header
         import time
+
         token = pyjwt.encode(
             {"iss": "test", "iat": int(time.time()), "exp": int(time.time()) + 3600},
             priv,
@@ -81,5 +83,6 @@ class TestResolveKeyFromToken:
 class TestKeyResolverProtocol:
     def test_static_resolver_is_key_resolver(self):
         from aaip.core.jwks import KeyResolver
+
         resolver = StaticKeyResolver({})
         assert isinstance(resolver, KeyResolver)

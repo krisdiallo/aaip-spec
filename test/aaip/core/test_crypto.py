@@ -68,12 +68,22 @@ class TestJWKConversion:
         restored = AAIPCrypto.jwk_to_public_key(jwk)
 
         original_bytes = pub.public_bytes(
-            encoding=__import__("cryptography.hazmat.primitives.serialization", fromlist=["Encoding"]).Encoding.Raw,
-            format=__import__("cryptography.hazmat.primitives.serialization", fromlist=["PublicFormat"]).PublicFormat.Raw,
+            encoding=__import__(
+                "cryptography.hazmat.primitives.serialization", fromlist=["Encoding"]
+            ).Encoding.Raw,
+            format=__import__(
+                "cryptography.hazmat.primitives.serialization",
+                fromlist=["PublicFormat"],
+            ).PublicFormat.Raw,
         )
         restored_bytes = restored.public_bytes(
-            encoding=__import__("cryptography.hazmat.primitives.serialization", fromlist=["Encoding"]).Encoding.Raw,
-            format=__import__("cryptography.hazmat.primitives.serialization", fromlist=["PublicFormat"]).PublicFormat.Raw,
+            encoding=__import__(
+                "cryptography.hazmat.primitives.serialization", fromlist=["Encoding"]
+            ).Encoding.Raw,
+            format=__import__(
+                "cryptography.hazmat.primitives.serialization",
+                fromlist=["PublicFormat"],
+            ).PublicFormat.Raw,
         )
         assert original_bytes == restored_bytes
 
@@ -106,7 +116,12 @@ class TestJWTEncodeDecode:
             "nbf": int(time.time()) - 60,
             "jti": "del_test_001",
             "scope": "payments:authorize",
-            "aaip": {"version": "2.0", "issuer_type": "oauth", "subject_type": "custom", "constraints": {}},
+            "aaip": {
+                "version": "2.0",
+                "issuer_type": "oauth",
+                "subject_type": "custom",
+                "constraints": {},
+            },
         }
 
         token = AAIPCrypto.encode_delegation_jwt(payload, priv, kid)

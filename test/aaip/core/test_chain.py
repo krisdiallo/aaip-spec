@@ -2,7 +2,6 @@
 Tests for AAIP v2.0 delegation chain (UCAN-style) functionality.
 """
 
-
 import pytest
 
 from aaip.core import (
@@ -21,16 +20,22 @@ class TestScopeSubset:
         assert is_scope_subset(["payments:authorize"], ["payments:authorize"]) is True
 
     def test_subset(self):
-        assert is_scope_subset(
-            ["payments:authorize"],
-            ["payments:authorize", "email:send"],
-        ) is True
+        assert (
+            is_scope_subset(
+                ["payments:authorize"],
+                ["payments:authorize", "email:send"],
+            )
+            is True
+        )
 
     def test_not_subset(self):
-        assert is_scope_subset(
-            ["payments:authorize", "email:send"],
-            ["payments:authorize"],
-        ) is False
+        assert (
+            is_scope_subset(
+                ["payments:authorize", "email:send"],
+                ["payments:authorize"],
+            )
+            is False
+        )
 
     def test_wildcard_parent(self):
         assert is_scope_subset(["payments:authorize"], ["payments:*"]) is True
@@ -176,7 +181,8 @@ class TestDelegationChain:
         token1 = create_signed_delegation(
             issuer_identity="user@example.com",
             issuer_identity_system="oauth",
-            private_key=priv1, kid=kid1,
+            private_key=priv1,
+            kid=kid1,
             subject_identity="agent_a",
             subject_identity_system="custom",
             scope=["payments:authorize", "email:send"],
@@ -188,7 +194,8 @@ class TestDelegationChain:
         token2 = create_signed_delegation(
             issuer_identity="agent_a",
             issuer_identity_system="custom",
-            private_key=priv2, kid=kid2,
+            private_key=priv2,
+            kid=kid2,
             subject_identity="agent_b",
             subject_identity_system="custom",
             scope=["payments:authorize"],
@@ -201,7 +208,8 @@ class TestDelegationChain:
         token3 = create_signed_delegation(
             issuer_identity="agent_b",
             issuer_identity_system="custom",
-            private_key=priv3, kid=kid3,
+            private_key=priv3,
+            kid=kid3,
             subject_identity="agent_c",
             subject_identity_system="custom",
             scope=["payments:authorize"],
@@ -225,7 +233,8 @@ class TestDelegationChain:
         root_token = create_signed_delegation(
             issuer_identity="user@example.com",
             issuer_identity_system="oauth",
-            private_key=priv_user, kid=kid_user,
+            private_key=priv_user,
+            kid=kid_user,
             subject_identity="agent_a",
             subject_identity_system="custom",
             scope=["payments:authorize"],
@@ -236,7 +245,8 @@ class TestDelegationChain:
         child_token = create_signed_delegation(
             issuer_identity="agent_a",
             issuer_identity_system="custom",
-            private_key=priv_agent, kid=kid_agent,
+            private_key=priv_agent,
+            kid=kid_agent,
             subject_identity="sub_agent",
             subject_identity_system="custom",
             scope=["payments:authorize", "email:send"],
@@ -257,7 +267,8 @@ class TestDelegationChain:
         root_token = create_signed_delegation(
             issuer_identity="user@example.com",
             issuer_identity_system="oauth",
-            private_key=priv_user, kid=kid_user,
+            private_key=priv_user,
+            kid=kid_user,
             subject_identity="agent_a",
             subject_identity_system="custom",
             scope=["payments:authorize"],
@@ -269,7 +280,8 @@ class TestDelegationChain:
         child_token = create_signed_delegation(
             issuer_identity="agent_a",
             issuer_identity_system="custom",
-            private_key=priv_agent, kid=kid_agent,
+            private_key=priv_agent,
+            kid=kid_agent,
             subject_identity="sub_agent",
             subject_identity_system="custom",
             scope=["payments:authorize"],
@@ -291,7 +303,8 @@ class TestDelegationChain:
         root_token = create_signed_delegation(
             issuer_identity="user@example.com",
             issuer_identity_system="oauth",
-            private_key=priv_user, kid=kid_user,
+            private_key=priv_user,
+            kid=kid_user,
             subject_identity="agent_a",
             subject_identity_system="custom",
             scope=["payments:authorize"],
@@ -302,7 +315,8 @@ class TestDelegationChain:
         child_token = create_signed_delegation(
             issuer_identity="agent_a",
             issuer_identity_system="custom",
-            private_key=priv_agent, kid=kid_agent,
+            private_key=priv_agent,
+            kid=kid_agent,
             subject_identity="sub_agent",
             subject_identity_system="custom",
             scope=["payments:authorize"],
@@ -327,7 +341,8 @@ class TestDelegationChain:
         token = create_signed_delegation(
             issuer_identity="level_0",
             issuer_identity_system="custom",
-            private_key=keys[0][0], kid=keys[0][2],
+            private_key=keys[0][0],
+            kid=keys[0][2],
             subject_identity="level_1",
             subject_identity_system="custom",
             scope=["test:action"],
@@ -339,7 +354,8 @@ class TestDelegationChain:
             token = create_signed_delegation(
                 issuer_identity=f"level_{i}",
                 issuer_identity_system="custom",
-                private_key=keys[i][0], kid=keys[i][2],
+                private_key=keys[i][0],
+                kid=keys[i][2],
                 subject_identity=f"level_{i + 1}",
                 subject_identity_system="custom",
                 scope=["test:action"],
