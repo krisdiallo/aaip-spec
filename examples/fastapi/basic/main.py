@@ -6,24 +6,24 @@ JWT-based delegation with UCAN-style delegation chains.
 Uses Authorization: Bearer header and JWKS endpoint for key resolution.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+import uvicorn
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import uvicorn
 
 from aaip import (
-    verify_delegation,
-    generate_keypair,
-    create_signed_delegation,
-    check_delegation_authorization,
-    validate_constraints,
-    public_key_to_jwk,
-    create_jwks,
+    AAIPError,
     Delegation,
     StaticKeyResolver,
-    AAIPError,
+    check_delegation_authorization,
+    create_jwks,
+    create_signed_delegation,
+    generate_keypair,
+    public_key_to_jwk,
+    validate_constraints,
+    verify_delegation,
 )
 
 app = FastAPI(
@@ -43,8 +43,8 @@ app.add_middleware(
 
 class CreateDelegationRequest(BaseModel):
     agent_identity: str
-    scope: List[str]
-    constraints: Optional[Dict[str, Any]] = None
+    scope: list[str]
+    constraints: Optional[dict[str, Any]] = None
     expires_at: str = "2027-08-26T10:00:00Z"
     not_before: str = "2025-07-26T10:00:00Z"
 
@@ -59,7 +59,7 @@ class CalendarEventRequest(BaseModel):
     title: str
     start_time: str
     duration_hours: float
-    attendees: Optional[List[str]] = None
+    attendees: Optional[list[str]] = None
 
 
 # Demo keypair (in production, use proper key management)
@@ -81,11 +81,12 @@ def get_delegation(authorization: Optional[str] = Header(None)) -> Delegation:
     try:
         return verify_delegation(token, key_resolver)
     except AAIPError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        raise HTTPException(status_code=401, detail=str(e)) from e
 
 
 def require_scope(required_scope: str):
     """Dependency factory for requiring specific scopes."""
+
     def dependency(delegation: Delegation = Depends(get_delegation)):
         resource, action = required_scope.split(":", 1)
         if not check_delegation_authorization(delegation, resource, action):
@@ -94,6 +95,7 @@ def require_scope(required_scope: str):
                 detail=f"Insufficient scope: requires {required_scope}",
             )
         return delegation
+
     return dependency
 
 
@@ -129,7 +131,7 @@ async def create_delegation(request: CreateDelegationRequest):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/payment")
@@ -151,7 +153,7 @@ async def process_payment(
             raise HTTPException(
                 status_code=403,
                 detail={"error": "Constraint violation", "details": str(e)},
-            )
+            ) from e
 
         transaction_id = f"txn_{payment.amount}_{payment.merchant}_{delegation.jti[:8]}"
 
@@ -167,7 +169,7 @@ async def process_payment(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/calendar")
@@ -190,7 +192,7 @@ async def create_calendar_event(
                 raise HTTPException(
                     status_code=403,
                     detail={"error": "Constraint violation", "details": str(e)},
-                )
+                ) from e
 
         event_id = f"evt_{event.title.replace(' ', '_')}_{delegation.jti[:8]}"
 
@@ -207,7 +209,7 @@ async def create_calendar_event(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/health")

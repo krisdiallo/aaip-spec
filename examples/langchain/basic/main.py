@@ -6,27 +6,27 @@ Demonstrates JWT-based AAIP delegation with LangChain agents.
 Features delegation chains, constraint enforcement, and audit logging.
 """
 
-import os
-import json
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional
+import json
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
-from langchain.agents import create_openai_functions_agent, AgentExecutor
+from langchain.agents import AgentExecutor, create_openai_functions_agent
 from langchain.tools import Tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 
 from aaip import (
+    AAIPError,
+    AAIPErrorCode,
+    AuthorizationError,
+    Delegation,
+    StaticKeyResolver,
+    check_delegation_authorization,
     create_signed_delegation,
     generate_keypair,
     verify_delegation,
-    check_delegation_authorization,
-    validate_constraints,
-    Delegation,
-    StaticKeyResolver,
-    AuthorizationError,
-    AAIPError,
 )
 
 
@@ -59,7 +59,7 @@ class AAIPLangChainAgent:
             handle_parsing_errors=True,
         )
 
-        print(f"\033[92mAAIP LangChain Agent initialized\033[0m")
+        print("\033[92mAAIP LangChain Agent initialized\033[0m")
         print(f"   Agent Identity: {self.agent_identity}")
 
     def set_key_resolver(self, resolver: StaticKeyResolver) -> None:
@@ -69,6 +69,7 @@ class AAIPLangChainAgent:
         class MockLLM:
             def invoke(self, messages):
                 from langchain_core.messages import AIMessage
+
                 return AIMessage(content="I understand. Let me help you with that.")
 
             def bind_functions(self, functions):
@@ -76,7 +77,7 @@ class AAIPLangChainAgent:
 
         return MockLLM()
 
-    def _create_authorized_tools(self) -> List[Tool]:
+    def _create_authorized_tools(self) -> list[Tool]:
         def book_flight_wrapper(input_str: str) -> str:
             try:
                 params = self._parse_tool_input(input_str)
@@ -111,18 +112,33 @@ class AAIPLangChainAgent:
                 return f"Authorization denied: {e}"
 
         return [
-            Tool(name="book_flight", description="Book a flight.", func=book_flight_wrapper),
-            Tool(name="send_email", description="Send an email.", func=send_email_wrapper),
-            Tool(name="make_payment", description="Process a payment.", func=make_payment_wrapper),
+            Tool(
+                name="book_flight",
+                description="Book a flight.",
+                func=book_flight_wrapper,
+            ),
+            Tool(
+                name="send_email", description="Send an email.", func=send_email_wrapper
+            ),
+            Tool(
+                name="make_payment",
+                description="Process a payment.",
+                func=make_payment_wrapper,
+            ),
         ]
 
     def _create_agent(self):
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful AI assistant with AAIP delegation-based authorization."),
-            MessagesPlaceholder("chat_history", optional=True),
-            ("human", "{input}"),
-            MessagesPlaceholder("agent_scratchpad"),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "You are a helpful AI assistant with AAIP delegation-based authorization.",
+                ),
+                MessagesPlaceholder("chat_history", optional=True),
+                ("human", "{input}"),
+                MessagesPlaceholder("agent_scratchpad"),
+            ]
+        )
         return create_openai_functions_agent(self.llm, self.tools, prompt)
 
     def set_delegation(self, token: str) -> bool:
@@ -130,14 +146,16 @@ class AAIPLangChainAgent:
         try:
             if self._key_resolver is None:
                 raise AuthorizationError(
-                    __import__("aaip.core.exceptions", fromlist=["AAIPErrorCode"]).AAIPErrorCode.IDENTITY_VERIFICATION_FAILED,
+                    AAIPErrorCode.IDENTITY_VERIFICATION_FAILED,
                     "No key resolver configured",
                 )
 
             delegation = verify_delegation(token, self._key_resolver)
 
             if delegation.aud != self.agent_identity:
-                print(f"\033[91mDelegation is not for this agent (aud={delegation.aud})\033[0m")
+                print(
+                    f"\033[91mDelegation is not for this agent (aud={delegation.aud})\033[0m"
+                )
                 return False
 
             self.current_delegation = delegation
@@ -152,21 +170,25 @@ class AAIPLangChainAgent:
             print(f"\033[91mFailed to set delegation: {e}\033[0m")
             return False
 
-    def _check_tool_authorization(self, required_scope: str, params: Dict[str, Any]) -> None:
+    def _check_tool_authorization(
+        self, required_scope: str, params: dict[str, Any]
+    ) -> None:
         if not self.current_delegation:
             raise AuthorizationError(
-                __import__("aaip.core.exceptions", fromlist=["AAIPErrorCode"]).AAIPErrorCode.SCOPE_INSUFFICIENT,
+                AAIPErrorCode.SCOPE_INSUFFICIENT,
                 "No delegation available",
             )
 
         resource, action = required_scope.split(":", 1)
-        if not check_delegation_authorization(self.current_delegation, resource, action, params):
+        if not check_delegation_authorization(
+            self.current_delegation, resource, action, params
+        ):
             raise AuthorizationError(
-                __import__("aaip.core.exceptions", fromlist=["AAIPErrorCode"]).AAIPErrorCode.SCOPE_INSUFFICIENT,
+                AAIPErrorCode.SCOPE_INSUFFICIENT,
                 f"Permission '{required_scope}' not granted or constraints violated",
             )
 
-    def _parse_tool_input(self, input_str: str) -> Dict[str, Any]:
+    def _parse_tool_input(self, input_str: str) -> dict[str, Any]:
         try:
             return json.loads(input_str)
         except json.JSONDecodeError:
@@ -182,7 +204,9 @@ class AAIPLangChainAgent:
             return "No delegation available. Agent not authorized."
 
         try:
-            result = await self.agent_executor.ainvoke({"input": task, "chat_history": []})
+            result = await self.agent_executor.ainvoke(
+                {"input": task, "chat_history": []}
+            )
             return result.get("output", "Task completed with no output")
         except Exception as e:
             return f"Task failed: {e}"
@@ -190,8 +214,8 @@ class AAIPLangChainAgent:
 
 def create_demo_delegation(
     user_identity: str,
-    scope: List[str],
-    constraints: Optional[Dict[str, Any]] = None,
+    scope: list[str],
+    constraints: Optional[dict[str, Any]] = None,
     agent_identity: str = "agent-123",
     private_key=None,
     kid: str = None,

@@ -62,6 +62,9 @@ class JWKSClient:
         self._last_fetch: float = 0.0
 
     def resolve_key(self, kid: str) -> Ed25519PublicKey:
+        # Return cached key if TTL hasn't expired; otherwise refresh from endpoint.
+        # _refresh_keys replaces the entire cache, so a previously-known kid may
+        # disappear if the endpoint no longer advertises it.
         if kid in self._cache:
             import time
 

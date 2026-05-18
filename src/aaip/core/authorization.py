@@ -308,10 +308,18 @@ def are_constraints_attenuated(
                 return False
 
         elif key == "time_window":
-            p_start = parent_value.get("start", "")
-            p_end = parent_value.get("end", "")
-            c_start = child_value.get("start", "")
-            c_end = child_value.get("end", "")
+            p_start = datetime.fromisoformat(
+                parent_value.get("start", "").replace("Z", "+00:00")
+            )
+            p_end = datetime.fromisoformat(
+                parent_value.get("end", "").replace("Z", "+00:00")
+            )
+            c_start = datetime.fromisoformat(
+                child_value.get("start", "").replace("Z", "+00:00")
+            )
+            c_end = datetime.fromisoformat(
+                child_value.get("end", "").replace("Z", "+00:00")
+            )
             if c_start < p_start or c_end > p_end:
                 return False
 
