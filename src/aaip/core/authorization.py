@@ -1,98 +1,106 @@
 """
 AAIP Authorization Types and Functionality
 
-This module contains all authorization and delegation-related types and functionality.
+JWT-based delegation model with UCAN-style delegation chain support.
 """
 
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional, Union
 
-from .exceptions import AAIPErrorCode, ConstraintError
-from .identity import Identity
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from .crypto import AAIPCrypto
+from .exceptions import (
+    AAIPErrorCode,
+    ChainError,
+    ConstraintError,
+    DelegationError,
+)
+from .jwks import KeyResolver, resolve_key_from_token
 
-@dataclass
-class DelegationPayload:
-    """The core delegation data structure."""
-
-    id: str
-    issuer: Identity
-    subject: Identity
-    scope: list[str]
-    constraints: dict[str, Any]
-    issued_at: str
-    expires_at: str
-    not_before: str
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "id": self.id,
-            "issuer": self.issuer.to_dict(),
-            "subject": self.subject.to_dict(),
-            "scope": self.scope,
-            "constraints": self.constraints,
-            "issued_at": self.issued_at,
-            "expires_at": self.expires_at,
-            "not_before": self.not_before,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DelegationPayload":
-        """Create from dictionary representation."""
-        return cls(
-            id=data["id"],
-            issuer=Identity.from_dict(data["issuer"]),
-            subject=Identity.from_dict(data["subject"]),
-            scope=data["scope"],
-            constraints=data["constraints"],
-            issued_at=data["issued_at"],
-            expires_at=data["expires_at"],
-            not_before=data["not_before"],
-        )
+DEFAULT_MAX_CHAIN_DEPTH = 5
 
 
 @dataclass
 class Delegation:
-    """AAIP delegation with signature."""
+    """Represents a decoded AAIP v2.0 JWT delegation."""
 
+    iss: str
+    aud: str
+    iat: int
+    exp: int
+    nbf: int
+    jti: str
+    scope: list[str]
+    proofs: list[str]
     aaip_version: str
-    delegation: DelegationPayload
-    signature: str
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "aaip_version": self.aaip_version,
-            "delegation": self.delegation.to_dict(),
-            "signature": self.signature,
-        }
+    issuer_type: str
+    subject_type: str
+    constraints: dict[str, Any]
+    token: str
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Delegation":
-        """Create from dictionary representation."""
+    def from_jwt_payload(cls, payload: dict[str, Any], token: str) -> "Delegation":
+        aaip_claim = payload.get("aaip", {})
+        scope_raw = payload.get("scope", "")
+        if isinstance(scope_raw, str):
+            scope_list = scope_raw.split() if scope_raw else []
+        else:
+            scope_list = list(scope_raw)
+
         return cls(
-            aaip_version=data["aaip_version"],
-            delegation=DelegationPayload.from_dict(data["delegation"]),
-            signature=data["signature"],
+            iss=payload.get("iss", ""),
+            aud=payload.get("aud", ""),
+            iat=payload.get("iat", 0),
+            exp=payload.get("exp", 0),
+            nbf=payload.get("nbf", 0),
+            jti=payload.get("jti", ""),
+            scope=scope_list,
+            proofs=payload.get("prf", []),
+            aaip_version=aaip_claim.get("version", "2.0"),
+            issuer_type=aaip_claim.get("issuer_type", "custom"),
+            subject_type=aaip_claim.get("subject_type", "custom"),
+            constraints=aaip_claim.get("constraints", {}),
+            token=token,
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "iss": self.iss,
+            "aud": self.aud,
+            "iat": self.iat,
+            "exp": self.exp,
+            "nbf": self.nbf,
+            "jti": self.jti,
+            "scope": " ".join(self.scope),
+            "aaip": {
+                "version": self.aaip_version,
+                "issuer_type": self.issuer_type,
+                "subject_type": self.subject_type,
+                "constraints": self.constraints,
+            },
+        }
+        if self.proofs:
+            result["prf"] = self.proofs
+        return result
 
-# Standard constraint validation functions
+
+# ---------------------------------------------------------------------------
+# Constraint validation (format-independent, unchanged from v1.0)
+# ---------------------------------------------------------------------------
 
 
 def _validate_max_amount(
     constraint: dict[str, Any], request_data: dict[str, Any]
 ) -> None:
-    """Validate maximum amount per transaction."""
     if "amount" not in request_data:
         raise ConstraintError(
             AAIPErrorCode.CONSTRAINT_VIOLATED,
             "max_amount constraint requires 'amount' field in request",
         )
-
     request_amount = request_data["amount"]
     max_amount = constraint.get("value", 0)
     constraint_currency = constraint.get("currency", "USD")
@@ -103,7 +111,6 @@ def _validate_max_amount(
             AAIPErrorCode.CONSTRAINT_VIOLATED,
             f"Currency mismatch: {request_currency} != {constraint_currency}",
         )
-
     if request_amount > max_amount:
         raise ConstraintError(
             AAIPErrorCode.CONSTRAINT_VIOLATED,
@@ -114,7 +121,6 @@ def _validate_max_amount(
 def _validate_time_window(
     constraint: dict[str, Any], request_data: dict[str, Any]
 ) -> None:
-    """Validate time window constraints."""
     now = datetime.now(timezone.utc)
 
     if "start" in constraint:
@@ -154,32 +160,25 @@ def _validate_time_window(
 def _validate_allowed_domains(
     constraint: list[str], request_data: dict[str, Any]
 ) -> None:
-    """Validate that domains in the request are allowed."""
     domains = request_data.get("domains", [])
     if isinstance(request_data.get("domain"), str):
         domains = [request_data["domain"]]
 
     for domain in domains:
-        # Check for exact match first
         if domain in constraint:
             continue
-
-        # Check for wildcard matches
         allowed = False
         for allowed_domain in constraint:
             if allowed_domain.startswith("*."):
-                # Subdomain wildcard: *.example.com matches api.example.com
-                suffix = allowed_domain[2:]  # Remove *.
+                suffix = allowed_domain[2:]
                 if domain.endswith(suffix):
                     allowed = True
                     break
             elif allowed_domain.endswith("*"):
-                # Prefix wildcard: example.* matches example.com, example.org
                 prefix = allowed_domain[:-1]
                 if domain.startswith(prefix):
                     allowed = True
                     break
-
         if not allowed:
             raise ConstraintError(
                 AAIPErrorCode.CONSTRAINT_VIOLATED,
@@ -190,30 +189,24 @@ def _validate_allowed_domains(
 def _validate_blocked_domains(
     constraint: list[str], request_data: dict[str, Any]
 ) -> None:
-    """Validate that domains in the request are not blocked."""
     domains = request_data.get("domains", [])
     if isinstance(request_data.get("domain"), str):
         domains = [request_data["domain"]]
 
     for domain in domains:
-        # Check for exact match first
         if domain in constraint:
             raise ConstraintError(
                 AAIPErrorCode.CONSTRAINT_VIOLATED, f"Domain '{domain}' is blocked"
             )
-
-        # Check for wildcard matches
         for blocked_domain in constraint:
             if blocked_domain.startswith("*."):
-                # Subdomain wildcard: *.malicious.com blocks api.malicious.com
-                suffix = blocked_domain[2:]  # Remove *.
+                suffix = blocked_domain[2:]
                 if domain.endswith(suffix):
                     raise ConstraintError(
                         AAIPErrorCode.CONSTRAINT_VIOLATED,
                         f"Domain '{domain}' is blocked by pattern '{blocked_domain}'",
                     )
             elif blocked_domain.endswith("*"):
-                # Prefix wildcard: competitor.* blocks competitor.com, competitor.org
                 prefix = blocked_domain[:-1]
                 if domain.startswith(prefix):
                     raise ConstraintError(
@@ -225,11 +218,9 @@ def _validate_blocked_domains(
 def _validate_blocked_keywords(
     constraint: list[str], request_data: dict[str, Any]
 ) -> None:
-    """Validate that content does not contain blocked keywords."""
     content = request_data.get("content", "")
     if not isinstance(content, str):
         return
-
     content_lower = content.lower()
     for keyword in constraint:
         if keyword.lower() in content_lower:
@@ -245,15 +236,8 @@ def validate_constraints(
     """
     Validate delegation constraints against request data.
 
-    Args:
-        constraints: Delegation constraints to validate
-        request_data: Request data to validate against
-
-    Returns:
-        True if all constraints pass
-
-    Raises:
-        ConstraintError: If any constraint is violated
+    Returns True if all constraints pass.
+    Raises ConstraintError if any constraint is violated.
     """
     for constraint_name, constraint_value in constraints.items():
         if constraint_name == "max_amount":
@@ -266,9 +250,97 @@ def validate_constraints(
             _validate_blocked_domains(constraint_value, request_data)
         elif constraint_name == "blocked_keywords":
             _validate_blocked_keywords(constraint_value, request_data)
-        # Unknown constraints are ignored per spec
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Scope matching
+# ---------------------------------------------------------------------------
+
+
+def _scope_matches(granted: str, required: str) -> bool:
+    """Check if a granted scope covers a required scope."""
+    if granted == required:
+        return True
+    if granted == "*":
+        return True
+    if granted.endswith("*"):
+        prefix = granted[:-1]
+        if required.startswith(prefix):
+            return True
+    return False
+
+
+def is_scope_subset(child_scopes: list[str], parent_scopes: list[str]) -> bool:
+    """Check that every child scope is covered by at least one parent scope."""
+    for child in child_scopes:
+        if not any(_scope_matches(parent, child) for parent in parent_scopes):
+            return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Attenuation checking for delegation chains
+# ---------------------------------------------------------------------------
+
+
+def are_constraints_attenuated(
+    child_constraints: dict[str, Any],
+    parent_constraints: dict[str, Any],
+) -> bool:
+    """
+    Check that child constraints are equal or stricter than parent constraints.
+
+    Returns True if the child is properly attenuated.
+    """
+    for key, parent_value in parent_constraints.items():
+        if key not in child_constraints:
+            return False
+
+        child_value = child_constraints[key]
+
+        if key == "max_amount":
+            p_val = parent_value.get("value", 0)
+            c_val = child_value.get("value", 0)
+            p_cur = parent_value.get("currency", "USD")
+            c_cur = child_value.get("currency", "USD")
+            if c_cur != p_cur or c_val > p_val:
+                return False
+
+        elif key == "time_window":
+            p_start = datetime.fromisoformat(
+                parent_value.get("start", "").replace("Z", "+00:00")
+            )
+            p_end = datetime.fromisoformat(
+                parent_value.get("end", "").replace("Z", "+00:00")
+            )
+            c_start = datetime.fromisoformat(
+                child_value.get("start", "").replace("Z", "+00:00")
+            )
+            c_end = datetime.fromisoformat(
+                child_value.get("end", "").replace("Z", "+00:00")
+            )
+            if c_start < p_start or c_end > p_end:
+                return False
+
+        elif key == "allowed_domains":
+            if not set(child_value).issubset(set(parent_value)):
+                return False
+
+        elif key == "blocked_domains":
+            if not set(parent_value).issubset(set(child_value)):
+                return False
+
+        elif key == "blocked_keywords":
+            if not set(parent_value).issubset(set(child_value)):
+                return False
 
     return True
+
+
+# ---------------------------------------------------------------------------
+# Authorization checking
+# ---------------------------------------------------------------------------
 
 
 def check_delegation_authorization(
@@ -280,308 +352,229 @@ def check_delegation_authorization(
     """
     Check if a delegation authorizes the requested action.
 
-    Args:
-        delegation: Delegation to check
-        required_resource: Required resource
-        required_action: Required action
-        context: Optional context for constraint validation
-
-    Returns:
-        True if delegation authorizes the action
+    Returns True if delegation authorizes the action.
     """
-    # Check if delegation is expired
-    now = datetime.now(timezone.utc)
-    try:
-        expires_at = datetime.fromisoformat(
-            delegation.delegation.expires_at.replace("Z", "+00:00")
-        )
-        if now >= expires_at:
-            return False
-    except ValueError:
+    now = time.time()
+    if now >= delegation.exp:
         return False
 
-    # Check scope with wildcard support
     required_scope = f"{required_resource}:{required_action}"
     scope_granted = False
-
-    for granted_scope in delegation.delegation.scope:
-        # Check for exact match
-        if granted_scope == required_scope:
-            scope_granted = True
-            break
-        # Check for wildcard match
-        elif granted_scope.endswith("*"):
-            prefix = granted_scope[:-1]
-            if required_scope.startswith(prefix):
-                scope_granted = True
-                break
-        # Check for full wildcard
-        elif granted_scope == "*":
+    for granted_scope in delegation.scope:
+        if _scope_matches(granted_scope, required_scope):
             scope_granted = True
             break
 
     if not scope_granted:
         return False
 
-    # Check constraints if context provided
-    if context and delegation.delegation.constraints:
+    if context and delegation.constraints:
         try:
-            validate_constraints(delegation.delegation.constraints, context)
+            validate_constraints(delegation.constraints, context)
         except ConstraintError:
             return False
 
     return True
 
 
-# Delegation creation utilities
+# ---------------------------------------------------------------------------
+# Delegation creation
+# ---------------------------------------------------------------------------
 
 
 def generate_delegation_id() -> str:
-    """Generate a unique delegation ID."""
     return f"del_{secrets.token_urlsafe(20)}"
 
 
-def _create_delegation_payload(
-    issuer_identity: str,
-    issuer_identity_system: str,
-    subject_identity: str,
-    subject_identity_system: str,
-    scope: list[str],
-    expires_at: str,
-    not_before: str,
-    constraints: Optional[dict[str, Any]] = None,
-    issuer_public_key: Optional[str] = None,
-) -> DelegationPayload:
-    """
-    Create a delegation payload (internal function).
-
-    This creates an unsigned delegation payload for use by create_signed_delegation().
-    This function is internal and should not be used directly - use create_signed_delegation()
-    for creating cryptographically secure delegations.
-
-    Args:
-        issuer_identity: Identity of the user granting permission
-        issuer_identity_system: Type of issuer's identity system
-        subject_identity: Identity of the agent receiving permission
-        subject_identity_system: Type of agent's identity system
-        scope: List of permissions being granted
-        expires_at: ISO 8601 expiration timestamp
-        not_before: ISO 8601 start timestamp
-        constraints: Optional constraints on the delegation
-        issuer_public_key: Optional public key for the issuer (for signed delegations)
-
-    Returns:
-        Delegation payload ready for signing
-    """
-    if not scope:
-        raise ValueError("Invalid delegation: must include at least one scope")
-
-    # Validate identities
-    if not issuer_identity or not issuer_identity.strip():
-        raise ValueError("Invalid delegation: issuer identity cannot be empty")
-
-    if not subject_identity or not subject_identity.strip():
-        raise ValueError("Invalid delegation: subject identity cannot be empty")
-
-    # Generate issued_at timestamp
-    now = datetime.now(timezone.utc)
-
-    # Create delegation payload
-    return DelegationPayload(
-        id=generate_delegation_id(),
-        issuer=Identity(
-            id=issuer_identity,
-            type=issuer_identity_system,
-            public_key=issuer_public_key,
-        ),
-        subject=Identity(id=subject_identity, type=subject_identity_system),
-        scope=scope,
-        constraints=constraints or {},
-        issued_at=now.isoformat().replace("+00:00", "Z"),
-        expires_at=expires_at,
-        not_before=not_before,
-    )
-
-
-def verify_delegation(
-    delegation: Union[dict[str, Any], Delegation], verify_signature: bool = True
-) -> bool:
-    """
-    Verify a delegation's structure, timing, and signature.
-
-    Args:
-        delegation: Delegation to verify (either dict or Delegation object)
-        verify_signature: Whether to perform cryptographic signature verification
-
-    Returns:
-        True if delegation is valid, False otherwise
-    """
-    try:
-        # Convert to dict if it's a Delegation object
-        if hasattr(delegation, "to_dict"):
-            delegation_dict = delegation.to_dict()
-        else:
-            delegation_dict = delegation
-
-        # Check required fields
-        required_fields = ["aaip_version", "delegation", "signature"]
-        if not all(field in delegation_dict for field in required_fields):
-            return False
-
-        delegation_payload = delegation_dict["delegation"]
-        required_payload_fields = [
-            "id",
-            "issuer",
-            "subject",
-            "scope",
-            "issued_at",
-            "expires_at",
-        ]
-        if not all(field in delegation_payload for field in required_payload_fields):
-            return False
-
-        # Verify AAIP version
-        from .. import AAIP_VERSION
-
-        if delegation_dict["aaip_version"] != AAIP_VERSION:
-            return False
-
-        # Verify time bounds
-        now = datetime.now(timezone.utc)
-
-        # Parse timestamps
-        try:
-            issued_at = datetime.fromisoformat(
-                delegation_payload["issued_at"].rstrip("Z")
-            ).replace(tzinfo=timezone.utc)
-            expires_at = datetime.fromisoformat(
-                delegation_payload["expires_at"].rstrip("Z")
-            ).replace(tzinfo=timezone.utc)
-
-            if "not_before" in delegation_payload:
-                not_before = datetime.fromisoformat(
-                    delegation_payload["not_before"].rstrip("Z")
-                ).replace(tzinfo=timezone.utc)
-                if now < not_before:
-                    return False
-        except (ValueError, TypeError):
-            return False
-
-        # Check if delegation has expired
-        if now >= expires_at:
-            return False
-
-        # Check if delegation was issued in the future (clock skew tolerance: 5 minutes)
-        from datetime import timedelta
-
-        if issued_at > now + timedelta(minutes=5):
-            return False
-
-        # Verify scope format
-        scope = delegation_payload.get("scope", [])
-        if not isinstance(scope, list) or not scope:
-            return False
-
-        for scope_item in scope:
-            if not isinstance(scope_item, str) or not scope_item.strip():
-                return False
-
-        # Verify signature if requested
-        if verify_signature:
-            signature = delegation_dict.get("signature")
-            if not signature or not isinstance(signature, str):
-                return False
-
-            # Get public key from issuer (must be present in delegation)
-            issuer = delegation_payload.get("issuer", {})
-            public_key = issuer.get("public_key")
-
-            if not public_key:
-                # No public key available - cannot verify signature
-                return False
-
-            # Verify signature with embedded public key
-            from .crypto import AAIPCrypto
-
-            delegation_without_sig = {
-                "aaip_version": delegation_dict["aaip_version"],
-                "delegation": delegation_payload,
-            }
-            if not AAIPCrypto.verify_delegation_signature(
-                delegation_without_sig, signature, public_key
-            ):
-                return False
-
-        # All validation checks passed
-        return True
-
-    except Exception:
-        return False
+def _to_unix_timestamp(value: Union[int, float, str, datetime]) -> int:
+    """Convert various time representations to a unix timestamp."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    if isinstance(value, str):
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return int(dt.timestamp())
+    raise ValueError(f"Cannot convert {type(value)} to timestamp")
 
 
 def create_signed_delegation(
     issuer_identity: str,
     issuer_identity_system: str,
-    issuer_private_key: str,
+    private_key: Any,
+    kid: str,
     subject_identity: str,
     subject_identity_system: str,
     scope: list[str],
-    expires_at: str,
-    not_before: str,
+    expires_at: Union[int, str, datetime],
+    not_before: Union[int, str, datetime],
     constraints: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
+    proofs: Optional[list[str]] = None,
+) -> str:
     """
-    Create a cryptographically signed delegation.
+    Create a cryptographically signed JWT delegation.
 
     Args:
-        issuer_identity: Identity of the user granting permission
+        issuer_identity: Identity of the user/agent granting permission (JWT iss)
         issuer_identity_system: Identity system type for issuer
-        issuer_private_key: Private key for signing (hex format)
-        subject_identity: Identity of the agent receiving permission
-        subject_identity_system: Identity system type for agent
+        private_key: Ed25519 private key for signing
+        kid: Key identifier for JWT header
+        subject_identity: Identity of the agent receiving permission (JWT aud)
+        subject_identity_system: Identity system type for subject
         scope: List of permission scopes to grant
-        expires_at: ISO 8601 expiration timestamp (e.g., "2025-07-24T10:00:00Z")
-        not_before: ISO 8601 timestamp when delegation becomes valid (e.g., "2025-07-23T10:00:00Z")
+        expires_at: Expiration time (unix timestamp, ISO string, or datetime)
+        not_before: Start time (unix timestamp, ISO string, or datetime)
         constraints: Optional constraints on the delegation
+        proofs: Optional parent delegation JWTs (for delegation chains)
 
     Returns:
-        Signed delegation dictionary
+        Signed JWT string
 
     Raises:
         ValueError: If parameters are invalid
         SignatureError: If signing fails
     """
-    # Validate timestamp formats
-    try:
-        datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-        datetime.fromisoformat(not_before.replace("Z", "+00:00"))
-    except ValueError as e:
-        raise ValueError(f"Invalid timestamp format: {e}") from e
+    if not scope:
+        raise ValueError("Invalid delegation: must include at least one scope")
+    if not issuer_identity or not issuer_identity.strip():
+        raise ValueError("Invalid delegation: issuer identity cannot be empty")
+    if not subject_identity or not subject_identity.strip():
+        raise ValueError("Invalid delegation: subject identity cannot be empty")
 
-    # Extract public key from private key
-    from .crypto import AAIPCrypto
+    exp_ts = _to_unix_timestamp(expires_at)
+    nbf_ts = _to_unix_timestamp(not_before)
+    iat_ts = int(datetime.now(timezone.utc).timestamp())
 
-    public_key = AAIPCrypto.extract_public_key_from_private(issuer_private_key)
+    payload: dict[str, Any] = {
+        "iss": issuer_identity,
+        "aud": subject_identity,
+        "iat": iat_ts,
+        "exp": exp_ts,
+        "nbf": nbf_ts,
+        "jti": generate_delegation_id(),
+        "scope": " ".join(scope),
+        "aaip": {
+            "version": "2.0",
+            "issuer_type": issuer_identity_system,
+            "subject_type": subject_identity_system,
+            "constraints": constraints or {},
+        },
+    }
 
-    # Create the delegation payload with public key
-    delegation_payload = _create_delegation_payload(
-        issuer_identity=issuer_identity,
-        issuer_identity_system=issuer_identity_system,
-        subject_identity=subject_identity,
-        subject_identity_system=subject_identity_system,
-        scope=scope,
-        constraints=constraints,
-        expires_at=expires_at,
-        not_before=not_before,
-        issuer_public_key=public_key,
-    )
+    if proofs:
+        payload["prf"] = proofs
 
-    # Create signed delegation
-    return AAIPCrypto.create_signed_delegation(
-        delegation_payload.to_dict(), issuer_private_key
-    )
+    return AAIPCrypto.encode_delegation_jwt(payload, private_key, kid)
 
 
-# Type aliases for convenience
-DelegationID = str
-ResourcePath = str
+# ---------------------------------------------------------------------------
+# Delegation verification
+# ---------------------------------------------------------------------------
+
+
+def verify_delegation(
+    token: str,
+    key_resolver: Union["KeyResolver", Ed25519PublicKey],
+    allowed_issuers: Optional[list[str]] = None,
+    max_chain_depth: int = DEFAULT_MAX_CHAIN_DEPTH,
+    _depth: int = 0,
+) -> Delegation:
+    """
+    Verify a delegation JWT and its proof chain.
+
+    Args:
+        token: JWT string
+        key_resolver: JWKS key resolver or direct Ed25519 public key
+        allowed_issuers: Optional whitelist of allowed issuers
+        max_chain_depth: Maximum delegation chain depth (default 5)
+
+    Returns:
+        Decoded Delegation object
+
+    Raises:
+        DelegationError: If token is invalid
+        SignatureError: If signature verification fails
+        ChainError: If delegation chain is invalid
+        KeyResolutionError: If key resolution fails
+    """
+    if _depth > max_chain_depth:
+        raise ChainError(
+            AAIPErrorCode.CHAIN_VALIDATION_FAILED,
+            f"Delegation chain exceeds maximum depth of {max_chain_depth}",
+        )
+
+    if isinstance(key_resolver, Ed25519PublicKey):
+        public_key = key_resolver
+    else:
+        public_key = resolve_key_from_token(token, key_resolver)
+
+    payload = AAIPCrypto.decode_delegation_jwt(token, public_key)
+
+    aaip_claim = payload.get("aaip", {})
+    version = aaip_claim.get("version", "")
+    if version != "2.0":
+        raise DelegationError(
+            AAIPErrorCode.INVALID_DELEGATION,
+            f"Unsupported AAIP version: {version}",
+        )
+
+    scope_raw = payload.get("scope", "")
+    scope_list = scope_raw.split() if isinstance(scope_raw, str) else list(scope_raw)
+    if not scope_list:
+        raise DelegationError(
+            AAIPErrorCode.INVALID_DELEGATION,
+            "Delegation must have at least one scope",
+        )
+
+    if allowed_issuers is not None:
+        iss = payload.get("iss", "")
+        if iss not in allowed_issuers:
+            raise DelegationError(
+                AAIPErrorCode.INVALID_DELEGATION,
+                f"Issuer '{iss}' not in allowed issuers",
+            )
+
+    delegation = Delegation.from_jwt_payload(payload, token)
+
+    if delegation.proofs:
+        _verify_chain(delegation, key_resolver, max_chain_depth, _depth)
+
+    return delegation
+
+
+def _verify_chain(
+    child: Delegation,
+    key_resolver: Union["KeyResolver", Ed25519PublicKey],
+    max_chain_depth: int,
+    current_depth: int,
+) -> None:
+    """Verify the delegation chain (proofs) for a child delegation."""
+    for proof_token in child.proofs:
+        parent = verify_delegation(
+            proof_token,
+            key_resolver,
+            max_chain_depth=max_chain_depth,
+            _depth=current_depth + 1,
+        )
+
+        if not is_scope_subset(child.scope, parent.scope):
+            raise ChainError(
+                AAIPErrorCode.ATTENUATION_VIOLATED,
+                f"Child scope {child.scope} is not a subset of parent scope {parent.scope}",
+            )
+
+        parent_constraints = parent.constraints
+        child_constraints = child.constraints
+        if parent_constraints and not are_constraints_attenuated(
+            child_constraints, parent_constraints
+        ):
+            raise ChainError(
+                AAIPErrorCode.ATTENUATION_VIOLATED,
+                "Child constraints are not properly attenuated from parent",
+            )
+
+        if child.exp > parent.exp:
+            raise ChainError(
+                AAIPErrorCode.ATTENUATION_VIOLATED,
+                "Child delegation expires after parent",
+            )

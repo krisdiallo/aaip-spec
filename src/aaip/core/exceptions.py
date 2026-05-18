@@ -1,8 +1,8 @@
 """
 AAIP Exceptions
 
-Core exception classes for AAIP v1.0 protocol.
-Aligned with specification Section 9 error codes.
+Core exception classes for AAIP v2.0 protocol.
+Aligned with specification error codes.
 """
 
 from enum import Enum
@@ -10,26 +10,28 @@ from typing import Any, Optional
 
 
 class AAIPErrorCode(Enum):
-    """Standard AAIP error codes as defined in specification."""
+    """Standard AAIP error codes."""
 
-    # Core delegation errors
     INVALID_DELEGATION = "INVALID_DELEGATION"
     MISSING_REQUIRED_FIELD = "MISSING_REQUIRED_FIELD"
     INVALID_FIELD_FORMAT = "INVALID_FIELD_FORMAT"
 
-    # Signature errors
     SIGNATURE_INVALID = "SIGNATURE_INVALID"
+    INVALID_TOKEN = "INVALID_TOKEN"  # nosec B105
+    UNSUPPORTED_ALGORITHM = "UNSUPPORTED_ALGORITHM"
 
-    # Time-based errors
     DELEGATION_EXPIRED = "DELEGATION_EXPIRED"
     DELEGATION_NOT_YET_VALID = "DELEGATION_NOT_YET_VALID"
 
-    # Authorization errors
     SCOPE_INSUFFICIENT = "SCOPE_INSUFFICIENT"
     CONSTRAINT_VIOLATED = "CONSTRAINT_VIOLATED"
 
-    # Identity errors
     IDENTITY_VERIFICATION_FAILED = "IDENTITY_VERIFICATION_FAILED"
+
+    KEY_RESOLUTION_FAILED = "KEY_RESOLUTION_FAILED"
+
+    CHAIN_VALIDATION_FAILED = "CHAIN_VALIDATION_FAILED"
+    ATTENUATION_VIOLATED = "ATTENUATION_VIOLATED"
 
 
 class AAIPError(Exception):
@@ -41,14 +43,6 @@ class AAIPError(Exception):
         message: str,
         details: Optional[dict[str, Any]] = None,
     ):
-        """
-        Initialize AAIP error.
-
-        Args:
-            code: Error code from AAIPErrorCode enum
-            message: Human-readable error message
-            details: Optional additional error details
-        """
         super().__init__(message)
         self.code = code
         self.message = message
@@ -85,16 +79,25 @@ class ValidationError(AAIPError):
     pass
 
 
-# Convenience functions for common errors
+class KeyResolutionError(AAIPError):
+    """Errors related to JWKS key resolution."""
+
+    pass
+
+
+class ChainError(AAIPError):
+    """Errors related to delegation chain validation."""
+
+    pass
+
+
 def invalid_delegation_error(
     message: str, details: Optional[dict[str, Any]] = None
 ) -> DelegationError:
-    """Create an invalid delegation error."""
     return DelegationError(AAIPErrorCode.INVALID_DELEGATION, message, details)
 
 
 def missing_field_error(field_name: str) -> DelegationError:
-    """Create a missing required field error."""
     return DelegationError(
         AAIPErrorCode.MISSING_REQUIRED_FIELD,
         f"Missing required field: {field_name}",
@@ -105,12 +108,14 @@ def missing_field_error(field_name: str) -> DelegationError:
 def signature_invalid_error(
     message: str = "Signature verification failed",
 ) -> SignatureError:
-    """Create a signature invalid error."""
     return SignatureError(AAIPErrorCode.SIGNATURE_INVALID, message)
 
 
+def invalid_token_error(message: str = "Invalid JWT token") -> DelegationError:
+    return DelegationError(AAIPErrorCode.INVALID_TOKEN, message)
+
+
 def delegation_expired_error(expires_at: str) -> AuthorizationError:
-    """Create a delegation expired error."""
     return AuthorizationError(
         AAIPErrorCode.DELEGATION_EXPIRED,
         f"Delegation expired at {expires_at}",
@@ -121,7 +126,6 @@ def delegation_expired_error(expires_at: str) -> AuthorizationError:
 def scope_insufficient_error(
     required_scope: str, available_scopes: list
 ) -> AuthorizationError:
-    """Create a scope insufficient error."""
     return AuthorizationError(
         AAIPErrorCode.SCOPE_INSUFFICIENT,
         f"Insufficient scope: requires {required_scope}",
@@ -130,9 +134,24 @@ def scope_insufficient_error(
 
 
 def constraint_violated_error(constraint_name: str, message: str) -> ConstraintError:
-    """Create a constraint violation error."""
     return ConstraintError(
         AAIPErrorCode.CONSTRAINT_VIOLATED,
         f"Constraint '{constraint_name}' violated: {message}",
         {"constraint_name": constraint_name},
     )
+
+
+def key_resolution_error(kid: str) -> KeyResolutionError:
+    return KeyResolutionError(
+        AAIPErrorCode.KEY_RESOLUTION_FAILED,
+        f"Failed to resolve key for kid: {kid}",
+        {"kid": kid},
+    )
+
+
+def chain_error(message: str) -> ChainError:
+    return ChainError(AAIPErrorCode.CHAIN_VALIDATION_FAILED, message)
+
+
+def attenuation_error(message: str) -> ChainError:
+    return ChainError(AAIPErrorCode.ATTENUATION_VIOLATED, message)

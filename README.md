@@ -1,90 +1,94 @@
-# AI Agent Identity Protocol (AAIP) v1.0
+# AI Agent Identity Protocol (AAIP) v2.0
 
-> Standard delegation format for AI agent authorization
+> JWT-based delegation chains with JWKS key resolution for AI agent authorization
 
 [![GitHub Stars](https://img.shields.io/github/stars/krisdiallo/aaip-spec)](https://github.com/krisdiallo/aaip-spec/stargazers)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/AAIP-v1.0-blue)](#specification)
+[![Version](https://img.shields.io/badge/AAIP-v2.0-blue)](#specification)
 
 ## What is AAIP?
 
-AAIP is a standard format for users to grant specific, time-bounded, and constrained permissions to AI agents. It provides cryptographically signed delegations that enable secure agent authorization without requiring central infrastructure.
+AAIP is a standard protocol for users to grant specific, time-bounded, and constrained permissions to AI agents. It uses JWT tokens signed with EdDSA (Ed25519), UCAN-style delegation chains for sub-delegation and attenuation, and JWKS-based key resolution for verifying signatures.
 
 ## Key Features
 
-- **Standard Delegation Format**: JSON-based signed delegations with Ed25519 cryptography
-- **Self-Contained Verification**: Delegations include all data needed for verification
-- **Hierarchical Scopes**: Fine-grained permissions with wildcard support  
+- **JWT Delegation Format**: EdDSA-signed JWT tokens with standard claims
+- **Delegation Chains**: UCAN-style proof chains (`prf` claim) for sub-delegation and attenuation
+- **JWKS Key Resolution**: Keys resolved via `kid` and JWKS endpoints
+- **Hierarchical Scopes**: Fine-grained permissions with wildcard support (OAuth2-style space-separated format)
 - **Standard Constraints**: Built-in spending limits, time windows, and content filtering
-- **Stateless Design**: No central authority or registry required
 - **Protocol-First**: Simple foundation for building agent authorization systems
 
 ## Quick Example
 
 ```python
-from aaip import create_signed_delegation, verify_delegation, generate_keypair
+from aaip import create_signed_delegation, verify_delegation, generate_keypair, StaticKeyResolver
 
 # Generate keypair for signing
-private_key, public_key = generate_keypair()
+private_key, public_key, kid = generate_keypair()
 
-# Create a signed delegation
-delegation = create_signed_delegation(
+# Create a signed JWT delegation
+token = create_signed_delegation(
     issuer_identity="user@example.com",
     issuer_identity_system="oauth",
-    issuer_private_key=private_key,
-    subject_identity="agent_001", 
+    private_key=private_key,
+    kid=kid,
+    subject_identity="agent_001",
     subject_identity_system="custom",
     scope=["payments:authorize"],
     expires_at="2025-08-26T10:00:00Z",
     not_before="2025-07-26T10:00:00Z",
-    constraints={
-        "max_amount": {"value": 500, "currency": "USD"},
-        "allowed_domains": ["amazon.com", "stripe.com"]
-    }
+    constraints={"max_amount": {"value": 500, "currency": "USD"}}
 )
 
 # Verify the delegation
-is_valid = verify_delegation(delegation)
-print(f"Delegation valid: {is_valid}")
+resolver = StaticKeyResolver({kid: public_key})
+delegation = verify_delegation(token, resolver)
+print(f"Delegation valid: {delegation.iss} -> {delegation.aud}")
 ```
 
 ## Delegation Format
 
-AAIP delegations are JSON objects with cryptographic signatures:
+AAIP delegations are JWT tokens signed with EdDSA (Ed25519):
 
+### Header
 ```json
 {
-  "aaip_version": "1.0",
-  "delegation": {
-    "id": "del_01H8QK9J2M3N4P5Q6R7S8T9V0W",
-    "issuer": {
-      "id": "user@example.com",
-      "type": "oauth",
-      "public_key": "ed25519-public-key-hex"
-    },
-    "subject": {
-      "id": "agent-uuid-123",
-      "type": "custom"
-    },
-    "scope": ["payments:send", "data:read:*"],
+  "alg": "EdDSA",
+  "typ": "JWT",
+  "kid": "key-id-from-jwks"
+}
+```
+
+### Payload
+```json
+{
+  "iss": "user@example.com",
+  "aud": "agent-uuid-123",
+  "iat": 1690108800,
+  "exp": 1690195200,
+  "nbf": 1690108800,
+  "jti": "del_01H8QK9J2M3N4P5Q6R7S8T9V0W",
+  "scope": "payments:send data:read:*",
+  "prf": [],
+  "aaip": {
+    "version": "2.0",
+    "issuer_type": "oauth",
+    "subject_type": "custom",
     "constraints": {
       "max_amount": {"value": 500, "currency": "USD"},
       "time_window": {
         "start": "2025-07-23T10:00:00Z",
         "end": "2025-07-24T10:00:00Z"
       }
-    },
-    "issued_at": "2025-07-23T10:00:00Z",
-    "expires_at": "2025-07-24T10:00:00Z",
-    "not_before": "2025-07-23T10:00:00Z"
-  },
-  "signature": "ed25519-signature-hex"
+    }
+  }
 }
 ```
 
 ## Standard Constraints
 
-AAIP v1.0 defines standard constraint types that all implementations must support:
+AAIP v2.0 defines standard constraint types that all implementations must support:
 
 ### Financial Constraints
 ```json
@@ -123,11 +127,12 @@ AAIP v1.0 defines standard constraint types that all implementations must suppor
 
 ## Security Features
 
-- **Ed25519 Signatures**: Industry-standard cryptographic security
-- **Self-Contained**: No external key lookups required
-- **Time-Bounded**: Automatic expiration prevents replay attacks
+- **JWT with EdDSA Signatures**: Industry-standard token format with Ed25519 cryptographic security
+- **JWKS Key Resolution**: Keys resolved via `kid` from JWKS endpoints, enabling key rotation and centralized management
+- **Delegation Chains**: UCAN-style `prf` claim enables verifiable sub-delegation with attenuation
+- **Time-Bounded**: Standard JWT `exp` / `nbf` claims prevent replay attacks
 - **Minimal Privilege**: Scoped permissions with explicit constraints
-- **Canonical Serialization**: Prevents signature malleability
+- **Scope Attenuation**: Sub-delegations must be a subset of parent scopes
 
 ## Installation
 
@@ -138,53 +143,67 @@ pip install aaip
 ## Examples
 
 ### FastAPI Integration
-Create REST APIs with AAIP authorization:
+Create REST APIs with AAIP authorization using the standard `Authorization: Bearer` header:
 
 ```python
-from fastapi import FastAPI, Depends
-from aaip import verify_delegation, check_delegation_authorization
+from fastapi import FastAPI, Depends, HTTPException, Request
+from aaip import verify_delegation, check_delegation_authorization, JWKSClient
 
 app = FastAPI()
 
+jwks_resolver = JWKSClient("https://auth.example.com/.well-known/jwks.json")
+
+async def get_delegation_from_header(request: Request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "Missing Bearer token")
+    token = auth.removeprefix("Bearer ")
+    return verify_delegation(token, jwks_resolver)
+
 def require_scope(required_scope: str):
-    def dependency(delegation = Depends(get_delegation_from_header)):
+    def dependency(delegation=Depends(get_delegation_from_header)):
         if not check_delegation_authorization(delegation, *required_scope.split(":")):
             raise HTTPException(403, f"Insufficient scope: requires {required_scope}")
         return delegation
     return dependency
 
+@app.get("/.well-known/jwks.json")
+async def jwks_endpoint():
+    """Serve public keys for delegation verification."""
+    return {"keys": get_registered_keys()}
+
 @app.post("/payment")
 async def process_payment(
     payment_data: PaymentRequest,
-    delegation = Depends(require_scope("payments:authorize"))
+    delegation=Depends(require_scope("payments:authorize"))
 ):
     # Payment processing with delegation authorization
     return {"status": "success"}
 ```
 
 ### LangChain Integration
-Add AAIP authorization to LangChain agents:
+Add AAIP authorization to LangChain agents using JWT-based delegations:
 
 ```python
 from langchain.agents import create_openai_functions_agent
-from aaip import verify_delegation, check_delegation_authorization
+from aaip import verify_delegation, check_delegation_authorization, StaticKeyResolver
 
 class AAIPLangChainAgent:
-    def __init__(self, agent_identity):
+    def __init__(self, agent_identity, resolver):
         self.agent_identity = agent_identity
+        self.resolver = resolver
         self.current_delegation = None
         # ... setup LangChain agent
     
-    def set_delegation(self, delegation):
-        if verify_delegation(delegation):
-            self.current_delegation = delegation
-            return True
-        return False
+    def set_delegation(self, token):
+        delegation = verify_delegation(token, self.resolver)
+        self.current_delegation = delegation
+        return delegation
     
     def execute_task(self, task):
         if not self.current_delegation:
             raise AuthorizationError("No delegation available")
-        # ... execute with authorization checks
+        # ... execute with authorization checks using delegation claims
 ```
 
 ## Use Cases
@@ -205,12 +224,12 @@ class AAIPLangChainAgent:
 
 Services verify delegations in these steps:
 
-1. **Format Validation**: Check all required fields exist
-2. **Version Check**: Ensure `aaip_version` is supported  
-3. **Time Validation**: Check expiration and validity times
-4. **Signature Verification**: Verify Ed25519 signature using embedded public key
-5. **Scope Check**: Validate requested action against delegation scope
-6. **Constraint Enforcement**: Apply all standard constraints
+1. **JWT Decode**: Decode the JWT token and validate the EdDSA signature
+2. **JWKS Key Lookup**: Resolve the signing key via `kid` from a JWKS endpoint or static resolver
+3. **Time Validation**: Check `exp` and `nbf` claims for expiration and validity
+4. **Chain Verification**: If `prf` claims are present, verify the full delegation chain and confirm scope/constraint attenuation
+5. **Scope Check**: Validate requested action against the `scope` claim
+6. **Constraint Enforcement**: Apply all constraints from the `aaip` claim
 
 ## Error Handling
 
@@ -221,19 +240,23 @@ AAIP defines standard error codes:
 - `DELEGATION_EXPIRED`: Delegation past expiration time
 - `SCOPE_INSUFFICIENT`: Required permission not granted
 - `CONSTRAINT_VIOLATED`: Request violates delegation constraints
+- `CHAIN_ERROR`: Delegation chain validation failed (e.g., broken proof chain, scope not attenuated)
+- `KEY_RESOLUTION_ERROR`: Unable to resolve signing key from JWKS endpoint or static resolver
 
 ## Implementation Status
 
 ### Core Protocol
-- [x] AAIP v1.0 specification complete
+- [x] AAIP v2.0 specification complete
 - [x] Python reference implementation
-- [x] Ed25519 cryptographic security
+- [x] JWT with EdDSA (Ed25519) cryptographic security
+- [x] JWKS-based key resolution
+- [x] UCAN-style delegation chains
 - [x] Standard constraint validation
 - [x] Comprehensive test suite
 
 ### Examples
-- [x] FastAPI integration example
-- [x] LangChain integration example
+- [x] FastAPI integration example (Bearer token + JWKS endpoint)
+- [x] LangChain integration example (JWT-based flow)
 - [x] Complete documentation
 
 ### Language Support
@@ -251,26 +274,28 @@ pip install aaip
 
 ### 2. Basic Usage
 ```python
-from aaip import create_signed_delegation, verify_delegation, generate_keypair
+from aaip import create_signed_delegation, verify_delegation, generate_keypair, StaticKeyResolver
 
 # Generate keys
-private_key, public_key = generate_keypair()
+private_key, public_key, kid = generate_keypair()
 
 # Create delegation
-delegation = create_signed_delegation(
+token = create_signed_delegation(
     issuer_identity="user@example.com",
     issuer_identity_system="oauth",
-    issuer_private_key=private_key,
+    private_key=private_key,
+    kid=kid,
     subject_identity="my-agent",
-    subject_identity_system="custom", 
+    subject_identity_system="custom",
     scope=["api:read"],
     expires_at="2025-08-26T10:00:00Z",
     not_before="2025-07-26T10:00:00Z"
 )
 
 # Verify delegation
-if verify_delegation(delegation):
-    print("Delegation is valid!")
+resolver = StaticKeyResolver({kid: public_key})
+delegation = verify_delegation(token, resolver)
+print(f"Delegation valid: {delegation.iss} -> {delegation.aud}")
 ```
 
 ### 3. Run Examples
@@ -286,7 +311,7 @@ python main.py
 
 ## Documentation
 
-- [AAIP v1.0 Specification](spec/core/aaip-v1.0.md) - Complete protocol specification
+- [AAIP v2.0 Specification](spec/core/aaip-v2.0.md) - Complete protocol specification
 - [Python API Reference](src/aaip/) - Implementation documentation
 - [Examples](examples/) - Integration examples and tutorials
 
@@ -314,4 +339,4 @@ The AAIP specification is released under CC0 (public domain) to ensure maximum a
 
 ---
 
-**AAIP v1.0**: Standard delegation format for AI agent authorization
+**AAIP v2.0**: JWT-based delegation chains with JWKS key resolution for AI agent authorization

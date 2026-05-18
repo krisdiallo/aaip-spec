@@ -5,6 +5,54 @@ All notable changes to the AI Agent Identity Protocol (AAIP) will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-04-22
+
+### Breaking Changes
+
+- **JWT format (EdDSA) replaces custom JSON envelope with hex Ed25519 signatures**
+  Delegations are now standard JWT tokens signed with EdDSA (Ed25519) instead of custom JSON objects with hex-encoded signatures.
+
+- **UCAN-style delegation chains via `prf` claim for sub-delegation and attenuation**
+  Agents can now sub-delegate authority using proof chains. The `prf` claim references parent delegation tokens, enabling verifiable attenuation of permissions across a chain.
+
+- **JWKS-based key resolution (`kid` + JWKS endpoint) replaces embedded public keys**
+  Public keys are no longer embedded in delegations. Verifiers resolve keys by `kid` from a JWKS endpoint or static resolver.
+
+- **OAuth2-style space-separated `scope` claim replaces JSON array**
+  Scopes are now encoded as a single space-separated string in the JWT `scope` claim, following OAuth2 conventions.
+
+- **`Authorization: Bearer <jwt>` header replaces `X-AAIP-Delegation`**
+  HTTP integrations now use the standard `Authorization: Bearer` header instead of the custom `X-AAIP-Delegation` header.
+
+- **AAIP-specific metadata in nested `aaip` custom claim (constraints, identity types)**
+  Constraint definitions, identity system types, and other AAIP-specific metadata are grouped under a single `aaip` claim in the JWT payload.
+
+- **`generate_keypair()` now returns `(Ed25519PrivateKey, Ed25519PublicKey, kid)` instead of hex strings**
+  Keys are returned as native cryptographic objects with an associated key ID, rather than hex-encoded strings.
+
+- **`verify_delegation()` returns `Delegation` object instead of `bool`**
+  Verification now returns a rich `Delegation` object containing parsed claims, instead of a simple boolean.
+
+- **`create_signed_delegation()` returns JWT string instead of dict; takes `private_key` (native key object) and `kid` instead of `issuer_private_key` (hex string)**
+  The signing function now produces a compact JWT string and accepts native key objects with key IDs.
+
+- **Identity `public_key` field removed (keys now in JWKS)**
+  The `public_key` field has been removed from identity objects. Key material is resolved via JWKS.
+
+### Added
+
+- **New `StaticKeyResolver`, `JWKSClient` for key resolution**
+  `StaticKeyResolver` maps `kid` values to local keys for testing and offline use. `JWKSClient` fetches keys from remote JWKS endpoints.
+
+- **New `ChainError`, `KeyResolutionError` exception types**
+  Dedicated exception types for delegation chain validation failures and key resolution failures.
+
+- **New `is_scope_subset()`, `are_constraints_attenuated()` utilities**
+  Helper functions for verifying that sub-delegated scopes and constraints are properly attenuated relative to their parent.
+
+- **PyJWT added as dependency**
+  JWT encoding and decoding is handled by the PyJWT library.
+
 ## [1.0.0] - 2025-07-26
 
 ### Added

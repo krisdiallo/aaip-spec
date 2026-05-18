@@ -1,77 +1,84 @@
 """
-Tests for AAIP delegation functionality.
-
-Run with: python -m pytest test_delegation.py
+Tests for AAIP v2.0 delegation functionality.
 """
 
 import os
-
-# Import test utilities
 import sys
 
 import pytest
 
-# Import AAIP core modules
 from aaip.core import (
     check_delegation_authorization,
 )
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from utils import create_test_delegation_payload, create_test_delegation_with_signature
+from utils import create_test_delegation, create_test_delegation_token
 
 
 class TestDelegationCreation:
-    """Test delegation creation and verification."""
-
     def test_delegation_authorization_check(self):
-        """Test delegation authorization checking."""
-        delegation_payload = create_test_delegation_payload(
+        delegation = create_test_delegation(
             issuer_identity="user@example.com",
             issuer_identity_system="oauth",
             subject_identity="test_agent",
             subject_identity_system="custom",
             scope=["payments:authorize"],
-            constraints={"max_amount": {"value": 500.0}},
+            constraints={"max_amount": {"value": 500.0, "currency": "USD"}},
         )
 
-        # Create a complete delegation with test signature
-        complete_delegation = create_test_delegation_with_signature(delegation_payload)
-
-        # Test authorization check
         assert (
-            check_delegation_authorization(complete_delegation, "payments", "authorize")
-            is True
+            check_delegation_authorization(delegation, "payments", "authorize") is True
+        )
+        assert check_delegation_authorization(delegation, "email", "send") is False
+
+    def test_wildcard_scope(self):
+        delegation = create_test_delegation(scope=["data:*"])
+
+        assert check_delegation_authorization(delegation, "data", "read") is True
+        assert check_delegation_authorization(delegation, "data", "write") is True
+        assert check_delegation_authorization(delegation, "payments", "send") is False
+
+    def test_full_wildcard_scope(self):
+        delegation = create_test_delegation(scope=["*"])
+
+        assert check_delegation_authorization(delegation, "anything", "goes") is True
+
+    def test_delegation_fields(self):
+        delegation = create_test_delegation(
+            issuer_identity="alice@example.com",
+            issuer_identity_system="oauth",
+            subject_identity="my_agent",
+            subject_identity_system="custom",
+            scope=["email:send", "calendar:write"],
         )
 
-        # Test with wrong scope
-        assert (
-            check_delegation_authorization(complete_delegation, "email", "send")
-            is False
-        )
+        assert delegation.iss == "alice@example.com"
+        assert delegation.aud == "my_agent"
+        assert delegation.issuer_type == "oauth"
+        assert delegation.subject_type == "custom"
+        assert delegation.scope == ["email:send", "calendar:write"]
+        assert delegation.aaip_version == "2.0"
+        assert delegation.jti.startswith("del_")
+
+    def test_delegation_to_dict(self):
+        delegation = create_test_delegation(scope=["test:action"])
+        d = delegation.to_dict()
+
+        assert d["iss"] == delegation.iss
+        assert d["aud"] == delegation.aud
+        assert d["scope"] == "test:action"
+        assert d["aaip"]["version"] == "2.0"
 
 
 class TestDelegationErrorHandling:
-    """Test delegation-specific error handling."""
-
     def test_empty_scope(self):
-        """Test error handling for empty scope."""
         with pytest.raises(ValueError):
-            create_test_delegation_payload(
-                issuer_identity="user@example.com",
-                issuer_identity_system="oauth",
-                subject_identity="test_agent",
-                subject_identity_system="custom",
-                scope=[],  # Empty scope should raise ValueError
-            )
+            create_test_delegation_token(scope=[])
 
-    def test_invalid_parameters(self):
-        """Test error handling for invalid parameters."""
-        # Test with empty issuer identity (this should raise ValueError from the internal function)
+    def test_empty_issuer_identity(self):
         with pytest.raises(ValueError):
-            create_test_delegation_payload(
-                issuer_identity="",  # Empty identity should raise ValueError
-                issuer_identity_system="oauth",
-                subject_identity="test_agent",
-                subject_identity_system="custom",
-                scope=["test"],
-            )
+            create_test_delegation_token(issuer_identity="")
+
+    def test_empty_subject_identity(self):
+        with pytest.raises(ValueError):
+            create_test_delegation_token(subject_identity="")

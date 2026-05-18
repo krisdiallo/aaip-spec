@@ -1,76 +1,83 @@
 """
 AAIP - AI Agent Identity Protocol
 
-Standard delegation format for AI agent authorization with Ed25519 cryptographic signatures.
+JWT-based delegation format for AI agent authorization with EdDSA signatures
+and UCAN-style delegation chains.
 
 Basic Usage:
     from aaip import create_signed_delegation, verify_delegation, generate_keypair
 
     # Generate a keypair for signing
-    private_key, public_key = generate_keypair()
+    private_key, public_key, kid = generate_keypair()
 
-    # Create a signed delegation
-    delegation = create_signed_delegation(
+    # Create a signed JWT delegation
+    token = create_signed_delegation(
         issuer_identity="user@example.com",
         issuer_identity_system="oauth",
-        issuer_private_key=private_key,
+        private_key=private_key,
+        kid=kid,
         subject_identity="agent_001",
         subject_identity_system="custom",
         scope=["payments:authorize"],
         expires_at="2025-08-26T10:00:00Z",
-        not_before="2025-07-26T10:00:00Z"
+        not_before="2025-07-26T10:00:00Z",
     )
 
     # Verify the delegation
-    is_valid = verify_delegation(delegation)
+    from aaip import StaticKeyResolver
+    resolver = StaticKeyResolver({kid: public_key})
+    delegation = verify_delegation(token, resolver)
 
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "AAIP Working Group"
 
-
-# Core public API - Essential delegation functions
 from .core import (
-    # Essential errors
     AAIPError,
     AAIPErrorCode,
     AuthorizationError,
-    # Core types most users need
+    ChainError,
     Delegation,
     DelegationError,
     Identity,
+    JWKSClient,
+    KeyResolutionError,
+    KeyResolver,
+    StaticKeyResolver,
     ValidationError,
     check_delegation_authorization,
-    # Primary delegation functions
+    create_jwks,
     create_signed_delegation,
     generate_keypair,
-    # Basic constraint functions
+    public_key_to_jwk,
     validate_constraints,
     verify_delegation,
 )
 
-AAIP_VERSION = "1.0"
+AAIP_VERSION = "2.0"
 
 __all__ = [
-    # Version info
     "__version__",
     "__author__",
     "AAIP_VERSION",
-    # Core delegation functions
     "create_signed_delegation",
     "verify_delegation",
     "generate_keypair",
     "check_delegation_authorization",
-    # Core types
+    "validate_constraints",
+    "public_key_to_jwk",
+    "create_jwks",
     "Delegation",
     "Identity",
-    # Essential errors
+    "KeyResolver",
+    "StaticKeyResolver",
+    "JWKSClient",
     "AAIPError",
     "AAIPErrorCode",
     "DelegationError",
     "ValidationError",
     "AuthorizationError",
-    # Basic constraints
-    "validate_constraints",
+    "KeyResolutionError",
+    "ChainError",
 ]
